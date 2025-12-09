@@ -161,7 +161,7 @@ export default function CoachingHotboard() {
   
   // Load data from JSON file
   useEffect(() => {
-    fetch('/coaches_data.json')
+    fetch(import.meta.env.BASE_URL + 'coaches_data.json')
       .then(res => {
         if (!res.ok) throw new Error('Failed to load coaches data');
         return res.json();
