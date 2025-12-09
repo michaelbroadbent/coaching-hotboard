@@ -371,7 +371,7 @@ export default function CoachingHotboard() {
           letterSpacing: '0.1em',
           textTransform: 'uppercase'
         }}>
-          {coachesData.length} Coaches Loaded • Mapping Coaching Trees & Connections
+          Mapping Coaching Trees & Connections
         </p>
       </header>
 
@@ -1020,10 +1020,15 @@ export default function CoachingHotboard() {
         color: '#8892b0',
         fontSize: '0.75rem'
       }}>
-        <p>Data sourced from Wikipedia coaching career infoboxes + manual entries</p>
-        <p style={{ marginTop: '0.5rem', opacity: 0.7 }}>
-          {coachesData.length} coaches loaded
-        </p>
+        <p>If you wanna talk more about some CFB data projects, hit me up!</p>
+        <a href="https://x.com/MikeBbent" style={{
+          color: '#8892b0',
+          fontSize: '1rem',
+          letterSpacing: '0.1em',
+          textTransform: 'uppercase'
+        }}>
+          Mike Broadbent
+        </a>
       </footer>
     </div>
   );
