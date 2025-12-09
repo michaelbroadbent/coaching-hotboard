@@ -971,43 +971,10 @@ export default function CoachingHotboard() {
             lineHeight: 1.6,
             marginBottom: '2rem'
           }}>
-            Discover coaching connections and see which coaches worked together 
-            at the same program. Perfect for building a coaching hotboard or 
+            Discover coaching connections & see which coaches worked together 
+            in the past. Perfect for building a coaching hotboard or 
             understanding coaching trees.
           </p>
-          <div style={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: '0.5rem',
-            justifyContent: 'center'
-          }}>
-            {popularSchools.map(school => (
-              <button
-                key={school}
-                onClick={() => setSelectedSchool(school)}
-                style={{
-                  padding: '0.5rem 1rem',
-                  background: 'rgba(255,107,53,0.1)',
-                  border: '1px solid rgba(255,107,53,0.3)',
-                  borderRadius: '100px',
-                  color: '#ff8c42',
-                  cursor: 'pointer',
-                  fontSize: '0.85rem',
-                  transition: 'all 0.2s ease'
-                }}
-                onMouseEnter={(e) => {
-                  e.target.style.background = 'rgba(255,107,53,0.2)';
-                  e.target.style.borderColor = 'rgba(255,107,53,0.5)';
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.background = 'rgba(255,107,53,0.1)';
-                  e.target.style.borderColor = 'rgba(255,107,53,0.3)';
-                }}
-              >
-                {school}
-              </button>
-            ))}
-          </div>
         </div>
       )}
 
