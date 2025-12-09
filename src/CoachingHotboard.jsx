@@ -6,8 +6,12 @@ const normalizeSchool = (name) => {
   return name.toLowerCase().trim();
 };
 
-// Format year range - show single year if start equals end
-const formatYearRange = (start, end) => {
+// Format year range - show single year if start equals end, show "present" if raw_years contains it
+const formatYearRange = (start, end, rawYears = null) => {
+  // Check if raw_years contains "present"
+  if (rawYears && rawYears.toLowerCase().includes('present')) {
+    return `${start}–present`;
+  }
   if (start === end) return `${start}`;
   return `${start}–${end}`;
 };
@@ -107,6 +111,7 @@ const findExternalConnections = (data, selectedSchool) => {
                     currentPosition: staffCoach.currentPosition,
                     position: staffJob.position,
                     years: staffJob.years,
+                    rawYears: staffJob.raw_years,
                     school: staffJob.school
                   },
                   otherCoach: {
@@ -115,6 +120,7 @@ const findExternalConnections = (data, selectedSchool) => {
                     currentPosition: otherCoach.currentPosition,
                     position: otherJob.position,
                     years: otherJob.years,
+                    rawYears: otherJob.raw_years,
                     school: otherJob.school
                   },
                   connectionSchool: staffJob.school,
@@ -158,6 +164,142 @@ export default function CoachingHotboard() {
   const [viewMode, setViewMode] = useState('overlaps');
   const [currentStaff, setCurrentStaff] = useState([]);
   const [connections, setConnections] = useState([]);
+  const [selectedCoach, setSelectedCoach] = useState(null);
+  const [coachingTree, setCoachingTree] = useState(null);
+  
+  // Build coaching tree for a selected coach
+  const buildCoachingTree = (coach, allCoachesData) => {
+    if (!coach || !allCoachesData.length) return null;
+    
+    const tree = {
+      coach: coach,
+      workedUnder: [], // Head coaches they worked under
+      mentored: [] // Coaches they mentored who became HCs
+    };
+    
+    // Find the full coach data if we only have partial
+    const fullCoachData = allCoachesData.find(c => c.name === coach.name) || coach;
+    
+    // For each job in their career, find the head coach at that school/team
+    fullCoachData.coaching_career?.forEach(job => {
+      const wasHeadCoach = job.position?.toLowerCase().startsWith('head coach');
+      
+      if (!wasHeadCoach) {
+        // Find head coaches at this school during this time
+        allCoachesData.forEach(otherCoach => {
+          if (otherCoach.name === fullCoachData.name) return;
+          
+          otherCoach.coaching_career?.forEach(otherJob => {
+            const isHeadCoach = otherJob.position?.toLowerCase().startsWith('head coach');
+            if (!isHeadCoach) return;
+            
+            // Check if same school
+            if (!schoolsMatch(job.school, otherJob.school)) return;
+            
+            // Check year overlap
+            if (job.years && otherJob.years) {
+              const overlapStart = Math.max(job.years.start, otherJob.years.start);
+              const overlapEnd = Math.min(job.years.end, otherJob.years.end);
+              
+              if (overlapStart <= overlapEnd) {
+                // Check if already added
+                const existing = tree.workedUnder.find(
+                  w => w.coach.name === otherCoach.name && w.school === job.school
+                );
+                if (!existing) {
+                  tree.workedUnder.push({
+                    coach: otherCoach,
+                    school: job.school,
+                    years: { start: overlapStart, end: overlapEnd },
+                    myPosition: job.position,
+                    rawYears: otherJob.raw_years
+                  });
+                }
+              }
+            }
+          });
+        });
+      } else {
+        // They were a head coach - find assistants who later became head coaches
+        allCoachesData.forEach(otherCoach => {
+          if (otherCoach.name === fullCoachData.name) return;
+          
+          let workedTogetherJob = null;
+          let becameHeadCoach = null;
+          
+          otherCoach.coaching_career?.forEach(otherJob => {
+            // Check if they worked at the same school while selected coach was HC
+            if (schoolsMatch(job.school, otherJob.school)) {
+              if (job.years && otherJob.years) {
+                const overlapStart = Math.max(job.years.start, otherJob.years.start);
+                const overlapEnd = Math.min(job.years.end, otherJob.years.end);
+                
+                if (overlapStart <= overlapEnd) {
+                  // They worked together, and the other coach wasn't also HC
+                  const otherWasHC = otherJob.position?.toLowerCase().startsWith('head coach');
+                  if (!otherWasHC) {
+                    workedTogetherJob = {
+                      school: job.school,
+                      position: otherJob.position,
+                      years: { start: overlapStart, end: overlapEnd }
+                    };
+                  }
+                }
+              }
+            }
+            
+            // Check if they later became a head coach
+            const isHC = otherJob.position?.toLowerCase().startsWith('head coach');
+            if (isHC && otherJob.years) {
+              if (!becameHeadCoach || otherJob.years.start < becameHeadCoach.years.start) {
+                becameHeadCoach = {
+                  school: otherJob.school,
+                  years: otherJob.years,
+                  rawYears: otherJob.raw_years
+                };
+              }
+            }
+          });
+          
+          // If they worked together and later became HC
+          if (workedTogetherJob && becameHeadCoach) {
+            // Make sure they became HC AFTER working together
+            if (becameHeadCoach.years.start >= workedTogetherJob.years.start) {
+              const existing = tree.mentored.find(m => m.coach.name === otherCoach.name);
+              if (!existing) {
+                tree.mentored.push({
+                  coach: otherCoach,
+                  workedTogether: workedTogetherJob,
+                  becameHC: becameHeadCoach
+                });
+              }
+            }
+          }
+        });
+      }
+    });
+    
+    // Sort workedUnder by year
+    tree.workedUnder.sort((a, b) => a.years.start - b.years.start);
+    
+    // Sort mentored by when they became HC
+    tree.mentored.sort((a, b) => a.becameHC.years.start - b.becameHC.years.start);
+    
+    return tree;
+  };
+  
+  // Handle coach click
+  const handleCoachClick = (coach) => {
+    const fullCoach = coachesData.find(c => c.name === coach.name) || coach;
+    setSelectedCoach(fullCoach);
+    setCoachingTree(buildCoachingTree(fullCoach, coachesData));
+  };
+  
+  // Close modal
+  const closeModal = () => {
+    setSelectedCoach(null);
+    setCoachingTree(null);
+  };
   
   // Load data from JSON file
   useEffect(() => {
@@ -235,8 +377,10 @@ export default function CoachingHotboard() {
         overlapYears: conn.overlapYears,
         staffPosition: conn.currentCoach.position,
         staffYears: conn.currentCoach.years,
+        staffRawYears: conn.currentCoach.rawYears,
         otherPosition: conn.otherCoach.position,
-        otherYears: conn.otherCoach.years
+        otherYears: conn.otherCoach.years,
+        otherRawYears: conn.otherCoach.rawYears
       });
     });
     
@@ -619,12 +763,18 @@ export default function CoachingHotboard() {
                       }}>
                         {selectedSchool} Staff
                       </div>
-                      <div style={{
-                        fontSize: '1.1rem',
-                        fontWeight: 700,
-                        color: '#fff',
-                        marginBottom: '0.25rem'
-                      }}>
+                      <div 
+                        style={{
+                          fontSize: '1.1rem',
+                          fontWeight: 700,
+                          color: '#fff',
+                          marginBottom: '0.25rem',
+                          cursor: 'pointer'
+                        }}
+                        onClick={() => handleCoachClick(conn.currentCoach)}
+                        onMouseEnter={(e) => e.target.style.color = '#ff6b35'}
+                        onMouseLeave={(e) => e.target.style.color = '#fff'}
+                      >
                         {conn.currentCoach.name}
                       </div>
                       <div style={{
@@ -643,7 +793,7 @@ export default function CoachingHotboard() {
                         display: 'inline-block'
                       }}>
                         Was: {conn.currentCoach.position} @ {conn.connectionSchool}
-                        <br />({formatYearRange(conn.currentCoach.years.start, conn.currentCoach.years.end)})
+                        <br />({formatYearRange(conn.currentCoach.years.start, conn.currentCoach.years.end, conn.currentCoach.rawYears)})
                       </div>
                     </div>
                     
@@ -710,8 +860,13 @@ export default function CoachingHotboard() {
                         fontSize: '1.1rem',
                         fontWeight: 700,
                         color: '#fff',
-                        marginBottom: '0.25rem'
-                      }}>
+                        marginBottom: '0.25rem',
+                        cursor: 'pointer'
+                      }}
+                        onClick={() => handleCoachClick(conn.otherCoach)}
+                        onMouseEnter={(e) => e.target.style.color = '#ff6b35'}
+                        onMouseLeave={(e) => e.target.style.color = '#fff'}
+                      >
                         {conn.otherCoach.name}
                       </div>
                       <div style={{
@@ -730,7 +885,7 @@ export default function CoachingHotboard() {
                         display: 'inline-block'
                       }}>
                         Was: {conn.otherCoach.position} @ {conn.connectionSchool}
-                        <br />({formatYearRange(conn.otherCoach.years.start, conn.otherCoach.years.end)})
+                        <br />({formatYearRange(conn.otherCoach.years.start, conn.otherCoach.years.end, conn.otherCoach.rawYears)})
                       </div>
                     </div>
                   </div>
@@ -785,7 +940,12 @@ export default function CoachingHotboard() {
                         {group.otherCoaches.length}
                       </div>
                       <div>
-                        <div style={{ fontWeight: 700, color: '#fff', fontSize: '1.1rem' }}>
+                        <div 
+                          style={{ fontWeight: 700, color: '#fff', fontSize: '1.1rem', cursor: 'pointer' }}
+                          onClick={() => handleCoachClick(group.coach)}
+                          onMouseEnter={(e) => e.target.style.color = '#ff6b35'}
+                          onMouseLeave={(e) => e.target.style.color = '#fff'}
+                        >
                           {group.coach.name}
                         </div>
                         <div style={{ color: '#8892b0', fontSize: '0.85rem' }}>
@@ -818,7 +978,12 @@ export default function CoachingHotboard() {
                               marginBottom: '0.5rem'
                             }}>
                               <div>
-                                <div style={{ color: '#fff', fontWeight: 600 }}>
+                                <div 
+                                  style={{ color: '#fff', fontWeight: 600, cursor: 'pointer' }}
+                                  onClick={() => handleCoachClick(otherCoachGroup.otherCoach)}
+                                  onMouseEnter={(e) => e.target.style.color = '#ff6b35'}
+                                  onMouseLeave={(e) => e.target.style.color = '#fff'}
+                                >
                                   {otherCoachGroup.otherCoach.name}
                                 </div>
                                 <div style={{ color: '#60a5fa', fontSize: '0.8rem' }}>
@@ -913,11 +1078,17 @@ export default function CoachingHotboard() {
                       e.currentTarget.style.transform = 'translateY(0)';
                     }}
                   >
-                    <div style={{
-                      fontWeight: 700,
-                      color: '#fff',
-                      marginBottom: '0.25rem'
-                    }}>
+                    <div 
+                      style={{
+                        fontWeight: 700,
+                        color: '#fff',
+                        marginBottom: '0.25rem',
+                        cursor: 'pointer'
+                      }}
+                      onClick={() => handleCoachClick(coach)}
+                      onMouseEnter={(e) => e.target.style.color = '#ff6b35'}
+                      onMouseLeave={(e) => e.target.style.color = '#fff'}
+                    >
                       {coach.name}
                     </div>
                     <div style={{
@@ -975,6 +1146,292 @@ export default function CoachingHotboard() {
             in the past. Perfect for building a coaching hotboard or 
             understanding coaching trees.
           </p>
+        </div>
+      )}
+
+      {/* Coach Modal */}
+      {selectedCoach && (
+        <div 
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.8)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '2rem',
+            overflow: 'auto'
+          }}
+          onClick={closeModal}
+        >
+          <div 
+            style={{
+              background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)',
+              borderRadius: '16px',
+              border: '1px solid rgba(255,107,53,0.3)',
+              maxWidth: '900px',
+              width: '100%',
+              maxHeight: '90vh',
+              overflow: 'auto',
+              position: 'relative'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div style={{
+              padding: '1.5rem 2rem',
+              borderBottom: '1px solid rgba(255,255,255,0.1)',
+              position: 'sticky',
+              top: 0,
+              background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)',
+              zIndex: 10
+            }}>
+              <button
+                onClick={closeModal}
+                style={{
+                  position: 'absolute',
+                  top: '1rem',
+                  right: '1rem',
+                  background: 'rgba(255,255,255,0.1)',
+                  border: 'none',
+                  borderRadius: '50%',
+                  width: '36px',
+                  height: '36px',
+                  cursor: 'pointer',
+                  color: '#fff',
+                  fontSize: '1.25rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                ×
+              </button>
+              <h2 style={{
+                fontSize: '1.75rem',
+                fontWeight: 700,
+                color: '#fff',
+                marginBottom: '0.25rem'
+              }}>
+                {selectedCoach.name}
+              </h2>
+              <div style={{ color: '#f7c59f', fontSize: '1rem' }}>
+                {selectedCoach.currentPosition} @ {selectedCoach.currentTeam}
+              </div>
+            </div>
+            
+            {/* Modal Content */}
+            <div style={{ padding: '2rem' }}>
+              {/* Coaching History */}
+              <div style={{ marginBottom: '2.5rem' }}>
+                <h3 style={{
+                  fontSize: '1.1rem',
+                  fontWeight: 700,
+                  color: '#ff6b35',
+                  marginBottom: '1rem',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.1em'
+                }}>
+                  📋 Coaching History
+                </h3>
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.5rem'
+                }}>
+                  {selectedCoach.coaching_career?.map((job, idx) => (
+                    <div
+                      key={idx}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: '100px 1fr',
+                        gap: '1rem',
+                        padding: '0.75rem 1rem',
+                        background: job.position?.toLowerCase().startsWith('head coach') 
+                          ? 'rgba(255,107,53,0.15)' 
+                          : 'rgba(255,255,255,0.03)',
+                        borderRadius: '8px',
+                        borderLeft: job.position?.toLowerCase().startsWith('head coach')
+                          ? '3px solid #ff6b35'
+                          : '3px solid transparent'
+                      }}
+                    >
+                      <div style={{
+                        color: '#8892b0',
+                        fontSize: '0.85rem',
+                        fontWeight: 600
+                      }}>
+                        {formatYearRange(job.years.start, job.years.end, job.raw_years)}
+                      </div>
+                      <div>
+                        <div style={{ color: '#fff', fontWeight: 600 }}>
+                          {job.school}
+                        </div>
+                        <div style={{ color: '#8892b0', fontSize: '0.85rem' }}>
+                          {job.position}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              
+              {/* Coaching Tree */}
+              {coachingTree && (
+                <>
+                  {/* Worked Under */}
+                  {coachingTree.workedUnder.length > 0 && (
+                    <div style={{ marginBottom: '2.5rem' }}>
+                      <h3 style={{
+                        fontSize: '1.1rem',
+                        fontWeight: 700,
+                        color: '#4ade80',
+                        marginBottom: '1rem',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.1em'
+                      }}>
+                        🌳 Head Coaches Worked Under ({coachingTree.workedUnder.length})
+                      </h3>
+                      <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+                        gap: '0.75rem'
+                      }}>
+                        {coachingTree.workedUnder.map((item, idx) => (
+                          <div
+                            key={idx}
+                            style={{
+                              background: 'rgba(74,222,128,0.1)',
+                              border: '1px solid rgba(74,222,128,0.2)',
+                              borderRadius: '10px',
+                              padding: '1rem',
+                              cursor: 'pointer',
+                              transition: 'all 0.2s ease'
+                            }}
+                            onClick={() => handleCoachClick(item.coach)}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.borderColor = 'rgba(74,222,128,0.5)';
+                              e.currentTarget.style.transform = 'translateY(-2px)';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.borderColor = 'rgba(74,222,128,0.2)';
+                              e.currentTarget.style.transform = 'translateY(0)';
+                            }}
+                          >
+                            <div style={{ fontWeight: 700, color: '#fff', marginBottom: '0.25rem' }}>
+                              {item.coach.name}
+                            </div>
+                            <div style={{ fontSize: '0.8rem', color: '#4ade80', marginBottom: '0.5rem' }}>
+                              Now: {item.coach.currentPosition} @ {item.coach.currentTeam}
+                            </div>
+                            <div style={{
+                              fontSize: '0.75rem',
+                              color: '#8892b0',
+                              padding: '0.25rem 0.5rem',
+                              background: 'rgba(0,0,0,0.2)',
+                              borderRadius: '4px'
+                            }}>
+                              <span style={{ color: '#f7c59f' }}>{item.school}</span>
+                              {' '}({formatYearRange(item.years.start, item.years.end)})
+                              <br />
+                              <span style={{ opacity: 0.8 }}>My role: {item.myPosition}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Mentored */}
+                  {coachingTree.mentored.length > 0 && (
+                    <div style={{ marginBottom: '1rem' }}>
+                      <h3 style={{
+                        fontSize: '1.1rem',
+                        fontWeight: 700,
+                        color: '#60a5fa',
+                        marginBottom: '1rem',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.1em'
+                      }}>
+                        🎓 Coaches Mentored Who Became HCs ({coachingTree.mentored.length})
+                      </h3>
+                      <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+                        gap: '0.75rem'
+                      }}>
+                        {coachingTree.mentored.map((item, idx) => (
+                          <div
+                            key={idx}
+                            style={{
+                              background: 'rgba(96,165,250,0.1)',
+                              border: '1px solid rgba(96,165,250,0.2)',
+                              borderRadius: '10px',
+                              padding: '1rem',
+                              cursor: 'pointer',
+                              transition: 'all 0.2s ease'
+                            }}
+                            onClick={() => handleCoachClick(item.coach)}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.borderColor = 'rgba(96,165,250,0.5)';
+                              e.currentTarget.style.transform = 'translateY(-2px)';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.borderColor = 'rgba(96,165,250,0.2)';
+                              e.currentTarget.style.transform = 'translateY(0)';
+                            }}
+                          >
+                            <div style={{ fontWeight: 700, color: '#fff', marginBottom: '0.25rem' }}>
+                              {item.coach.name}
+                            </div>
+                            <div style={{ fontSize: '0.8rem', color: '#60a5fa', marginBottom: '0.5rem' }}>
+                              Now: {item.coach.currentPosition} @ {item.coach.currentTeam}
+                            </div>
+                            <div style={{
+                              fontSize: '0.75rem',
+                              color: '#8892b0',
+                              padding: '0.25rem 0.5rem',
+                              background: 'rgba(0,0,0,0.2)',
+                              borderRadius: '4px',
+                              marginBottom: '0.5rem'
+                            }}>
+                              <span style={{ color: '#f7c59f' }}>Together at {item.workedTogether.school}</span>
+                              {' '}({formatYearRange(item.workedTogether.years.start, item.workedTogether.years.end)})
+                              <br />
+                              <span style={{ opacity: 0.8 }}>Their role: {item.workedTogether.position}</span>
+                            </div>
+                            <div style={{
+                              fontSize: '0.75rem',
+                              color: '#4ade80',
+                              padding: '0.25rem 0.5rem',
+                              background: 'rgba(74,222,128,0.1)',
+                              borderRadius: '4px'
+                            }}>
+                              → Became HC at {item.becameHC.school} ({formatYearRange(item.becameHC.years.start, item.becameHC.years.end, item.becameHC.rawYears)})
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {coachingTree.workedUnder.length === 0 && coachingTree.mentored.length === 0 && (
+                    <div style={{
+                      textAlign: 'center',
+                      padding: '2rem',
+                      color: '#8892b0'
+                    }}>
+                      No coaching tree connections found in the current dataset.
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
