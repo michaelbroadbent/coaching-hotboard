@@ -160,6 +160,8 @@ export default function CoachingHotboard() {
   const [calculating, setCalculating] = useState(false);
   const [error, setError] = useState(null);
   const [selectedSchool, setSelectedSchool] = useState('');
+  const [secondarySchool, setSecondarySchool] = useState('');
+  const [secondarySearchTerm, setSecondarySearchTerm] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [viewMode, setViewMode] = useState('overlaps');
   const [currentStaff, setCurrentStaff] = useState([]);
@@ -202,17 +204,27 @@ export default function CoachingHotboard() {
               const overlapEnd = Math.min(job.years.end, otherJob.years.end);
               
               if (overlapStart <= overlapEnd) {
-                // Check if already added
+                // Check if already added this coach
                 const existing = tree.workedUnder.find(
-                  w => w.coach.name === otherCoach.name && w.school === job.school
+                  w => w.coach.name === otherCoach.name
                 );
-                if (!existing) {
-                  tree.workedUnder.push({
-                    coach: otherCoach,
+                if (existing) {
+                  // Add another stint under this coach
+                  existing.stints.push({
                     school: job.school,
                     years: { start: overlapStart, end: overlapEnd },
                     myPosition: job.position,
                     rawYears: otherJob.raw_years
+                  });
+                } else {
+                  tree.workedUnder.push({
+                    coach: otherCoach,
+                    stints: [{
+                      school: job.school,
+                      years: { start: overlapStart, end: overlapEnd },
+                      myPosition: job.position,
+                      rawYears: otherJob.raw_years
+                    }]
                   });
                 }
               }
@@ -279,8 +291,17 @@ export default function CoachingHotboard() {
       }
     });
     
-    // Sort workedUnder by year
-    tree.workedUnder.sort((a, b) => a.years.start - b.years.start);
+    // Sort workedUnder by earliest stint year
+    tree.workedUnder.sort((a, b) => {
+      const aEarliest = Math.min(...a.stints.map(s => s.years.start));
+      const bEarliest = Math.min(...b.stints.map(s => s.years.start));
+      return aEarliest - bEarliest;
+    });
+    
+    // Sort stints within each workedUnder entry
+    tree.workedUnder.forEach(w => {
+      w.stints.sort((a, b) => a.years.start - b.years.start);
+    });
     
     // Sort mentored by when they became HC
     tree.mentored.sort((a, b) => a.becameHC.years.start - b.becameHC.years.start);
@@ -331,9 +352,14 @@ export default function CoachingHotboard() {
     if (!selectedSchool) {
       setCurrentStaff([]);
       setConnections([]);
+      setSecondarySchool('');
+      setSecondarySearchTerm('');
       return;
     }
     
+    // Clear secondary filter when primary school changes
+    setSecondarySchool('');
+    setSecondarySearchTerm('');
     setCalculating(true);
     
     // Use setTimeout to allow the loading spinner to render before heavy calculation
@@ -351,10 +377,19 @@ export default function CoachingHotboard() {
     return () => clearTimeout(timer);
   }, [selectedSchool, coachesData]);
   
+  // Filter connections by secondary school
+  const filteredConnections = useMemo(() => {
+    if (!secondarySchool) return connections;
+    return connections.filter(conn => 
+      schoolsMatch(conn.otherCoach.currentTeam, secondarySchool)
+    );
+  }, [connections, secondarySchool]);
+
   // Group connections by current staff member, then by other coach
   const connectionsByCoach = useMemo(() => {
+    const connectionsToUse = secondarySchool ? filteredConnections : connections;
     const grouped = {};
-    connections.forEach(conn => {
+    connectionsToUse.forEach(conn => {
       if (!grouped[conn.currentCoach.name]) {
         grouped[conn.currentCoach.name] = {
           coach: conn.currentCoach,
@@ -394,7 +429,7 @@ export default function CoachingHotboard() {
         return bTotal - aTotal;
       })
     })).sort((a, b) => b.otherCoaches.length - a.otherCoaches.length);
-  }, [connections]);
+  }, [connections, filteredConnections, secondarySchool]);
   
   // Get unique other coaches connected to (for stats)
   const uniqueOtherCoaches = useMemo(() => {
@@ -415,6 +450,27 @@ export default function CoachingHotboard() {
     });
     return teams;
   }, [connections]);
+
+  // Get sorted list of connected teams for secondary filter dropdown
+  const connectedTeamsList = useMemo(() => {
+    return Array.from(connectedTeams).sort();
+  }, [connectedTeams]);
+
+  // Filter secondary school search
+  const filteredSecondarySchools = useMemo(() => {
+    if (!secondarySearchTerm) return connectedTeamsList;
+    const term = secondarySearchTerm.toLowerCase();
+    return connectedTeamsList.filter(s => s.toLowerCase().includes(term));
+  }, [connectedTeamsList, secondarySearchTerm]);
+
+  // Filtered stats
+  const filteredUniqueOtherCoaches = useMemo(() => {
+    const coaches = new Set();
+    filteredConnections.forEach(conn => {
+      coaches.add(conn.otherCoach.name);
+    });
+    return coaches;
+  }, [filteredConnections]);
 
   // Popular schools for quick selection
   const popularSchools = useMemo(() => {
@@ -574,7 +630,7 @@ export default function CoachingHotboard() {
                 overflowY: 'auto',
                 zIndex: 100
               }}>
-                {filteredSchools.slice(0, 15).map(school => (
+                {filteredSchools.slice(0, 500).map(school => (
                   <div
                     key={school}
                     onClick={() => {
@@ -671,11 +727,116 @@ export default function CoachingHotboard() {
               ×
             </button>
           </div>
+          
+          {/* Secondary School Filter - only show in All Connections view */}
+          {!calculating && viewMode === 'overlaps' && connectedTeamsList.length > 0 && (
+            <>
+              <span style={{ color: '#8892b0', fontSize: '1.25rem' }}>→</span>
+              {secondarySchool ? (
+                <div style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.75rem',
+                  background: 'linear-gradient(135deg, rgba(96,165,250,0.2), rgba(96,165,250,0.1))',
+                  padding: '0.75rem 1.25rem',
+                  borderRadius: '100px',
+                  border: '1px solid rgba(96,165,250,0.4)'
+                }}>
+                  <span style={{ fontSize: '1.5rem' }}>🎯</span>
+                  <span style={{ fontWeight: 700, color: '#60a5fa' }}>{secondarySchool}</span>
+                  <button
+                    onClick={() => {
+                      setSecondarySchool('');
+                      setSecondarySearchTerm('');
+                    }}
+                    style={{
+                      background: 'rgba(255,255,255,0.1)',
+                      border: 'none',
+                      borderRadius: '50%',
+                      width: '24px',
+                      height: '24px',
+                      cursor: 'pointer',
+                      color: '#888',
+                      fontSize: '1rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                  >
+                    ×
+                  </button>
+                </div>
+              ) : (
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type="text"
+                    value={secondarySearchTerm}
+                    onChange={(e) => setSecondarySearchTerm(e.target.value)}
+                    placeholder="Filter by connected school..."
+                    style={{
+                      padding: '0.5rem 1rem',
+                      background: 'rgba(255,255,255,0.03)',
+                      border: '1px solid rgba(96,165,250,0.3)',
+                      borderRadius: '100px',
+                      color: '#fff',
+                      fontSize: '0.85rem',
+                      outline: 'none',
+                      width: '220px',
+                      transition: 'all 0.3s ease'
+                    }}
+                    onFocus={(e) => e.target.style.borderColor = 'rgba(96,165,250,0.6)'}
+                    onBlur={(e) => {
+                      setTimeout(() => {
+                        e.target.style.borderColor = 'rgba(96,165,250,0.3)';
+                      }, 200);
+                    }}
+                  />
+                  {secondarySearchTerm && filteredSecondarySchools.length > 0 && (
+                    <div style={{
+                      position: 'absolute',
+                      top: '100%',
+                      left: 0,
+                      right: 0,
+                      background: '#1a1a2e',
+                      border: '1px solid rgba(96,165,250,0.3)',
+                      borderRadius: '8px',
+                      marginTop: '4px',
+                      maxHeight: '200px',
+                      overflowY: 'auto',
+                      zIndex: 100
+                    }}>
+                      {filteredSecondarySchools.slice(0, 10).map(school => (
+                        <div
+                          key={school}
+                          onClick={() => {
+                            setSecondarySchool(school);
+                            setSecondarySearchTerm('');
+                          }}
+                          style={{
+                            padding: '0.5rem 0.75rem',
+                            cursor: 'pointer',
+                            borderBottom: '1px solid rgba(255,255,255,0.05)',
+                            fontSize: '0.85rem',
+                            transition: 'background 0.2s ease'
+                          }}
+                          onMouseEnter={(e) => e.target.style.background = 'rgba(96,165,250,0.1)'}
+                          onMouseLeave={(e) => e.target.style.background = 'transparent'}
+                        >
+                          {school}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+          
           {!calculating && (
             <div style={{ color: '#8892b0', fontSize: '0.9rem' }}>
               <span style={{ color: '#ff6b35', fontWeight: 700 }}>{currentStaff.length}</span> current staff · 
-              <span style={{ color: '#ff6b35', fontWeight: 700 }}> {uniqueOtherCoaches.size}</span> coaches connected ·
-              <span style={{ color: '#ff6b35', fontWeight: 700 }}> {connectedTeams.size}</span> other programs
+              <span style={{ color: '#ff6b35', fontWeight: 700 }}> {secondarySchool ? filteredUniqueOtherCoaches.size : uniqueOtherCoaches.size}</span> coaches connected ·
+              <span style={{ color: '#ff6b35', fontWeight: 700 }}> {secondarySchool ? '1' : connectedTeams.size}</span> other programs
             </div>
           )}
         </div>
@@ -720,16 +881,18 @@ export default function CoachingHotboard() {
               display: 'grid',
               gap: '1rem'
             }}>
-              {connections.length === 0 ? (
+              {filteredConnections.length === 0 ? (
                 <div style={{
                   textAlign: 'center',
                   padding: '3rem',
                   color: '#8892b0'
                 }}>
-                  No external coaching connections found for {selectedSchool} staff
+                  {secondarySchool 
+                    ? `No connections found between ${selectedSchool} and ${secondarySchool}`
+                    : `No external coaching connections found for ${selectedSchool} staff`}
                 </div>
               ) : (
-                connections.map((conn, idx) => (
+                filteredConnections.map((conn, idx) => (
                   <div
                     key={idx}
                     style={{
@@ -1294,7 +1457,7 @@ export default function CoachingHotboard() {
                         textTransform: 'uppercase',
                         letterSpacing: '0.1em'
                       }}>
-                        🌳 Head Coaches Worked Under ({coachingTree.workedUnder.length})
+                        Active Head Coaches Worked Under ({coachingTree.workedUnder.length})
                       </h3>
                       <div style={{
                         display: 'grid',
@@ -1329,16 +1492,27 @@ export default function CoachingHotboard() {
                               Now: {item.coach.currentPosition} @ {item.coach.currentTeam}
                             </div>
                             <div style={{
-                              fontSize: '0.75rem',
-                              color: '#8892b0',
-                              padding: '0.25rem 0.5rem',
-                              background: 'rgba(0,0,0,0.2)',
-                              borderRadius: '4px'
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '0.25rem'
                             }}>
-                              <span style={{ color: '#f7c59f' }}>{item.school}</span>
-                              {' '}({formatYearRange(item.years.start, item.years.end)})
-                              <br />
-                              <span style={{ opacity: 0.8 }}>My role: {item.myPosition}</span>
+                              {item.stints.map((stint, stintIdx) => (
+                                <div 
+                                  key={stintIdx}
+                                  style={{
+                                    fontSize: '0.75rem',
+                                    color: '#8892b0',
+                                    padding: '0.25rem 0.5rem',
+                                    background: 'rgba(0,0,0,0.2)',
+                                    borderRadius: '4px'
+                                  }}
+                                >
+                                  <span style={{ color: '#f7c59f' }}>{stint.school}</span>
+                                  {' '}({formatYearRange(stint.years.start, stint.years.end, stint.rawYears)})
+                                  <br />
+                                  <span style={{ opacity: 0.8 }}>My role: {stint.myPosition}</span>
+                                </div>
+                              ))}
                             </div>
                           </div>
                         ))}
@@ -1357,7 +1531,7 @@ export default function CoachingHotboard() {
                         textTransform: 'uppercase',
                         letterSpacing: '0.1em'
                       }}>
-                        🎓 Coaches Mentored Who Became HCs ({coachingTree.mentored.length})
+                        Active HC Tree ({coachingTree.mentored.length})
                       </h3>
                       <div style={{
                         display: 'grid',
