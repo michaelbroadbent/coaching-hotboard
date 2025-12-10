@@ -162,6 +162,7 @@ export default function CoachingHotboard() {
   const [selectedSchool, setSelectedSchool] = useState('');
   const [secondarySchool, setSecondarySchool] = useState('');
   const [secondarySearchTerm, setSecondarySearchTerm] = useState('');
+  const [selectedStaffMember, setSelectedStaffMember] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [viewMode, setViewMode] = useState('overlaps');
   const [currentStaff, setCurrentStaff] = useState([]);
@@ -236,7 +237,7 @@ export default function CoachingHotboard() {
         allCoachesData.forEach(otherCoach => {
           if (otherCoach.name === fullCoachData.name) return;
           
-          let workedTogetherJob = null;
+          let workedTogetherStints = [];
           let becameHeadCoach = null;
           
           otherCoach.coaching_career?.forEach(otherJob => {
@@ -250,11 +251,11 @@ export default function CoachingHotboard() {
                   // They worked together, and the other coach wasn't also HC
                   const otherWasHC = otherJob.position?.toLowerCase().startsWith('head coach');
                   if (!otherWasHC) {
-                    workedTogetherJob = {
+                    workedTogetherStints.push({
                       school: job.school,
                       position: otherJob.position,
                       years: { start: overlapStart, end: overlapEnd }
-                    };
+                    });
                   }
                 }
               }
@@ -274,14 +275,27 @@ export default function CoachingHotboard() {
           });
           
           // If they worked together and later became HC
-          if (workedTogetherJob && becameHeadCoach) {
-            // Make sure they became HC AFTER working together
-            if (becameHeadCoach.years.start >= workedTogetherJob.years.start) {
+          if (workedTogetherStints.length > 0 && becameHeadCoach) {
+            // Make sure they became HC AFTER working together (use earliest stint)
+            const earliestStint = workedTogetherStints.reduce((earliest, s) => 
+              s.years.start < earliest.years.start ? s : earliest
+            );
+            if (becameHeadCoach.years.start >= earliestStint.years.start) {
               const existing = tree.mentored.find(m => m.coach.name === otherCoach.name);
-              if (!existing) {
+              if (existing) {
+                // Add stints to existing entry
+                workedTogetherStints.forEach(stint => {
+                  const alreadyHas = existing.stints.find(s => 
+                    s.school === stint.school && s.years.start === stint.years.start
+                  );
+                  if (!alreadyHas) {
+                    existing.stints.push(stint);
+                  }
+                });
+              } else {
                 tree.mentored.push({
                   coach: otherCoach,
-                  workedTogether: workedTogetherJob,
+                  stints: workedTogetherStints,
                   becameHC: becameHeadCoach
                 });
               }
@@ -305,6 +319,11 @@ export default function CoachingHotboard() {
     
     // Sort mentored by when they became HC
     tree.mentored.sort((a, b) => a.becameHC.years.start - b.becameHC.years.start);
+    
+    // Sort stints within each mentored entry
+    tree.mentored.forEach(m => {
+      m.stints.sort((a, b) => a.years.start - b.years.start);
+    });
     
     return tree;
   };
@@ -354,12 +373,14 @@ export default function CoachingHotboard() {
       setConnections([]);
       setSecondarySchool('');
       setSecondarySearchTerm('');
+      setSelectedStaffMember(null);
       return;
     }
     
-    // Clear secondary filter when primary school changes
+    // Clear secondary filter and staff filter when primary school changes
     setSecondarySchool('');
     setSecondarySearchTerm('');
+    setSelectedStaffMember(null);
     setCalculating(true);
     
     // Use setTimeout to allow the loading spinner to render before heavy calculation
@@ -377,13 +398,24 @@ export default function CoachingHotboard() {
     return () => clearTimeout(timer);
   }, [selectedSchool, coachesData]);
   
-  // Filter connections by secondary school
+  // Filter connections by secondary school and/or staff member
   const filteredConnections = useMemo(() => {
-    if (!secondarySchool) return connections;
-    return connections.filter(conn => 
-      schoolsMatch(conn.otherCoach.currentTeam, secondarySchool)
-    );
-  }, [connections, secondarySchool]);
+    let result = connections;
+    
+    // Filter by staff member if selected
+    if (selectedStaffMember) {
+      result = result.filter(conn => conn.currentCoach.name === selectedStaffMember.name);
+    }
+    
+    // Filter by secondary school if selected
+    if (secondarySchool) {
+      result = result.filter(conn => 
+        schoolsMatch(conn.otherCoach.currentTeam, secondarySchool)
+      );
+    }
+    
+    return result;
+  }, [connections, secondarySchool, selectedStaffMember]);
 
   // Group connections by coach pair (for All Connections view)
   const groupedConnections = useMemo(() => {
@@ -422,7 +454,7 @@ export default function CoachingHotboard() {
 
   // Group connections by current staff member, then by other coach
   const connectionsByCoach = useMemo(() => {
-    const connectionsToUse = secondarySchool ? filteredConnections : connections;
+    const connectionsToUse = (secondarySchool || selectedStaffMember) ? filteredConnections : connections;
     const grouped = {};
     connectionsToUse.forEach(conn => {
       if (!grouped[conn.currentCoach.name]) {
@@ -468,7 +500,7 @@ export default function CoachingHotboard() {
         return bTotal - aTotal;
       })
     })).sort((a, b) => b.otherCoaches.length - a.otherCoaches.length);
-  }, [connections, filteredConnections, secondarySchool]);
+  }, [connections, filteredConnections, secondarySchool, selectedStaffMember]);
   
   // Get unique other coaches connected to (for stats)
   const uniqueOtherCoaches = useMemo(() => {
@@ -873,11 +905,124 @@ export default function CoachingHotboard() {
           
           {!calculating && (
             <div style={{ color: '#8892b0', fontSize: '0.9rem' }}>
-              <span style={{ color: '#ff6b35', fontWeight: 700 }}>{currentStaff.length}</span> current staff · 
-              <span style={{ color: '#ff6b35', fontWeight: 700 }}> {secondarySchool ? filteredUniqueOtherCoaches.size : uniqueOtherCoaches.size}</span> coaches connected ·
+              <span style={{ color: '#ff6b35', fontWeight: 700 }}>{selectedStaffMember ? '1' : currentStaff.length}</span> current staff · 
+              <span style={{ color: '#ff6b35', fontWeight: 700 }}> {secondarySchool || selectedStaffMember ? filteredUniqueOtherCoaches.size : uniqueOtherCoaches.size}</span> coaches connected ·
               <span style={{ color: '#ff6b35', fontWeight: 700 }}> {secondarySchool ? '1' : connectedTeams.size}</span> other programs
             </div>
           )}
+        </div>
+      )}
+
+      {/* Staff Directory */}
+      {selectedSchool && !calculating && currentStaff.length > 0 && (
+        <div style={{
+          maxWidth: '1200px',
+          margin: '0 auto 2rem',
+          padding: '1rem 1.5rem',
+          background: 'rgba(255,255,255,0.02)',
+          border: '1px solid rgba(255,107,53,0.15)',
+          borderRadius: '12px'
+        }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '1rem',
+            marginBottom: '0.75rem'
+          }}>
+            <h3 style={{
+              fontSize: '0.8rem',
+              fontWeight: 700,
+              color: '#8892b0',
+              textTransform: 'uppercase',
+              letterSpacing: '0.1em',
+              margin: 0
+            }}>
+              Current Staff
+            </h3>
+            {selectedStaffMember && (
+              <button
+                onClick={() => setSelectedStaffMember(null)}
+                style={{
+                  padding: '0.25rem 0.75rem',
+                  background: 'rgba(255,107,53,0.2)',
+                  border: '1px solid rgba(255,107,53,0.4)',
+                  borderRadius: '100px',
+                  color: '#ff6b35',
+                  fontSize: '0.75rem',
+                  cursor: 'pointer',
+                  fontWeight: 600
+                }}
+              >
+                Show All Staff
+              </button>
+            )}
+          </div>
+          <div style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: '0.5rem'
+          }}>
+            {currentStaff.map((coach, idx) => {
+              const isSelected = selectedStaffMember?.name === coach.name;
+              const connectionCount = connections.filter(c => c.currentCoach.name === coach.name).length;
+              return (
+                <button
+                  key={idx}
+                  onClick={() => setSelectedStaffMember(isSelected ? null : coach)}
+                  style={{
+                    padding: '0.4rem 0.75rem',
+                    background: isSelected 
+                      ? 'rgba(255,107,53,0.3)' 
+                      : 'rgba(255,255,255,0.05)',
+                    border: isSelected 
+                      ? '1px solid rgba(255,107,53,0.6)' 
+                      : '1px solid rgba(255,255,255,0.1)',
+                    borderRadius: '6px',
+                    color: isSelected ? '#ff6b35' : '#ccd6f6',
+                    fontSize: '0.8rem',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isSelected) {
+                      e.currentTarget.style.background = 'rgba(255,107,53,0.1)';
+                      e.currentTarget.style.borderColor = 'rgba(255,107,53,0.3)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isSelected) {
+                      e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
+                      e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)';
+                    }
+                  }}
+                >
+                  <span style={{ fontWeight: 600 }}>{coach.name}</span>
+                  <span style={{ 
+                    fontSize: '0.7rem', 
+                    color: '#8892b0',
+                    opacity: 0.8
+                  }}>
+                    {coach.currentPosition}
+                  </span>
+                  {connectionCount > 0 && (
+                    <span style={{
+                      background: isSelected ? 'rgba(255,107,53,0.5)' : 'rgba(255,107,53,0.2)',
+                      color: isSelected ? '#fff' : '#ff6b35',
+                      padding: '0.1rem 0.4rem',
+                      borderRadius: '100px',
+                      fontSize: '0.65rem',
+                      fontWeight: 700
+                    }}>
+                      {connectionCount}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -1638,17 +1783,28 @@ export default function CoachingHotboard() {
                               Now: {item.coach.currentPosition} @ {item.coach.currentTeam}
                             </div>
                             <div style={{
-                              fontSize: '0.75rem',
-                              color: '#8892b0',
-                              padding: '0.25rem 0.5rem',
-                              background: 'rgba(0,0,0,0.2)',
-                              borderRadius: '4px',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '0.25rem',
                               marginBottom: '0.5rem'
                             }}>
-                              <span style={{ color: '#f7c59f' }}>Together at {item.workedTogether.school}</span>
-                              {' '}({formatYearRange(item.workedTogether.years.start, item.workedTogether.years.end)})
-                              <br />
-                              <span style={{ opacity: 0.8 }}>Their role: {item.workedTogether.position}</span>
+                              {item.stints.map((stint, stintIdx) => (
+                                <div 
+                                  key={stintIdx}
+                                  style={{
+                                    fontSize: '0.75rem',
+                                    color: '#8892b0',
+                                    padding: '0.25rem 0.5rem',
+                                    background: 'rgba(0,0,0,0.2)',
+                                    borderRadius: '4px'
+                                  }}
+                                >
+                                  <span style={{ color: '#f7c59f' }}>{stint.school}</span>
+                                  {' '}({formatYearRange(stint.years.start, stint.years.end)})
+                                  <br />
+                                  <span style={{ opacity: 0.8 }}>Their role: {stint.position}</span>
+                                </div>
+                              ))}
                             </div>
                             <div style={{
                               fontSize: '0.75rem',
