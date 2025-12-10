@@ -385,6 +385,41 @@ export default function CoachingHotboard() {
     );
   }, [connections, secondarySchool]);
 
+  // Group connections by coach pair (for All Connections view)
+  const groupedConnections = useMemo(() => {
+    const grouped = {};
+    filteredConnections.forEach(conn => {
+      const key = `${conn.currentCoach.name}|${conn.otherCoach.name}`;
+      if (!grouped[key]) {
+        grouped[key] = {
+          currentCoach: conn.currentCoach,
+          otherCoach: conn.otherCoach,
+          overlaps: []
+        };
+      }
+      grouped[key].overlaps.push({
+        connectionSchool: conn.connectionSchool,
+        overlapStart: conn.overlapStart,
+        overlapEnd: conn.overlapEnd,
+        overlapYears: conn.overlapYears,
+        currentPosition: conn.currentCoach.position,
+        currentYears: conn.currentCoach.years,
+        currentRawYears: conn.currentCoach.rawYears,
+        otherPosition: conn.otherCoach.position,
+        otherYears: conn.otherCoach.years,
+        otherRawYears: conn.otherCoach.rawYears
+      });
+    });
+    
+    // Convert to array and calculate total years, sort by total years
+    return Object.values(grouped).map(group => ({
+      ...group,
+      // Sort overlaps chronologically (earliest first)
+      overlaps: group.overlaps.sort((a, b) => a.overlapStart - b.overlapStart),
+      totalYears: group.overlaps.reduce((sum, o) => sum + o.overlapYears, 0)
+    })).sort((a, b) => b.totalYears - a.totalYears);
+  }, [filteredConnections]);
+
   // Group connections by current staff member, then by other coach
   const connectionsByCoach = useMemo(() => {
     const connectionsToUse = secondarySchool ? filteredConnections : connections;
@@ -422,7 +457,11 @@ export default function CoachingHotboard() {
     // Convert to array and sort
     return Object.values(grouped).map(group => ({
       coach: group.coach,
-      otherCoaches: Object.values(group.connectionsByOtherCoach).sort((a, b) => {
+      otherCoaches: Object.values(group.connectionsByOtherCoach).map(oc => ({
+        ...oc,
+        // Sort overlaps chronologically (earliest first)
+        overlaps: oc.overlaps.sort((a, b) => a.overlapStart - b.overlapStart)
+      })).sort((a, b) => {
         // Sort by total overlap years descending
         const aTotal = a.overlaps.reduce((sum, o) => sum + o.overlapYears, 0);
         const bTotal = b.overlaps.reduce((sum, o) => sum + o.overlapYears, 0);
@@ -881,7 +920,7 @@ export default function CoachingHotboard() {
               display: 'grid',
               gap: '1rem'
             }}>
-              {filteredConnections.length === 0 ? (
+              {groupedConnections.length === 0 ? (
                 <div style={{
                   textAlign: 'center',
                   padding: '3rem',
@@ -892,7 +931,7 @@ export default function CoachingHotboard() {
                     : `No external coaching connections found for ${selectedSchool} staff`}
                 </div>
               ) : (
-                filteredConnections.map((conn, idx) => (
+                groupedConnections.map((group, idx) => (
                   <div
                     key={idx}
                     style={{
@@ -934,29 +973,40 @@ export default function CoachingHotboard() {
                           marginBottom: '0.25rem',
                           cursor: 'pointer'
                         }}
-                        onClick={() => handleCoachClick(conn.currentCoach)}
+                        onClick={() => handleCoachClick(group.currentCoach)}
                         onMouseEnter={(e) => e.target.style.color = '#ff6b35'}
                         onMouseLeave={(e) => e.target.style.color = '#fff'}
                       >
-                        {conn.currentCoach.name}
+                        {group.currentCoach.name}
                       </div>
                       <div style={{
                         fontSize: '0.85rem',
                         color: '#f7c59f',
                         marginBottom: '0.5rem'
                       }}>
-                        {conn.currentCoach.currentPosition}
+                        {group.currentCoach.currentPosition}
                       </div>
                       <div style={{
-                        fontSize: '0.75rem',
-                        color: '#8892b0',
-                        padding: '0.25rem 0.5rem',
-                        background: 'rgba(255,255,255,0.05)',
-                        borderRadius: '4px',
-                        display: 'inline-block'
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '0.25rem'
                       }}>
-                        Was: {conn.currentCoach.position} @ {conn.connectionSchool}
-                        <br />({formatYearRange(conn.currentCoach.years.start, conn.currentCoach.years.end, conn.currentCoach.rawYears)})
+                        {group.overlaps.map((overlap, oIdx) => (
+                          <div 
+                            key={oIdx}
+                            style={{
+                              fontSize: '0.75rem',
+                              color: '#8892b0',
+                              padding: '0.25rem 0.5rem',
+                              background: 'rgba(255,255,255,0.05)',
+                              borderRadius: '4px',
+                              display: 'inline-block'
+                            }}
+                          >
+                            Was: {overlap.currentPosition} @ {overlap.connectionSchool}
+                            <br />({formatYearRange(overlap.currentYears.start, overlap.currentYears.end, overlap.currentRawYears)})
+                          </div>
+                        ))}
                       </div>
                     </div>
                     
@@ -982,7 +1032,7 @@ export default function CoachingHotboard() {
                           fontWeight: 800,
                           color: '#0f0f23'
                         }}>
-                          {conn.overlapYears}
+                          {group.totalYears}
                         </div>
                         <div style={{
                           fontSize: '0.6rem',
@@ -990,21 +1040,31 @@ export default function CoachingHotboard() {
                           fontWeight: 600,
                           textTransform: 'uppercase'
                         }}>
-                          {conn.overlapYears === 1 ? 'year' : 'years'}
+                          {group.totalYears === 1 ? 'year' : 'years'}
                         </div>
                       </div>
                       <div style={{
-                        fontSize: '0.75rem',
-                        color: '#f7c59f',
-                        fontWeight: 600
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '0.25rem'
                       }}>
-                        {conn.connectionSchool}
-                      </div>
-                      <div style={{
-                        fontSize: '0.7rem',
-                        color: '#8892b0'
-                      }}>
-                        {formatYearRange(conn.overlapStart, conn.overlapEnd)}
+                        {group.overlaps.map((overlap, oIdx) => (
+                          <div key={oIdx}>
+                            <div style={{
+                              fontSize: '0.75rem',
+                              color: '#f7c59f',
+                              fontWeight: 600
+                            }}>
+                              {overlap.connectionSchool}
+                            </div>
+                            <div style={{
+                              fontSize: '0.7rem',
+                              color: '#8892b0'
+                            }}>
+                              {formatYearRange(overlap.overlapStart, overlap.overlapEnd)}
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     </div>
                     
@@ -1017,7 +1077,7 @@ export default function CoachingHotboard() {
                         letterSpacing: '0.1em',
                         marginBottom: '0.25rem'
                       }}>
-                        Now @ {conn.otherCoach.currentTeam}
+                        Now @ {group.otherCoach.currentTeam}
                       </div>
                       <div style={{
                         fontSize: '1.1rem',
@@ -1026,29 +1086,41 @@ export default function CoachingHotboard() {
                         marginBottom: '0.25rem',
                         cursor: 'pointer'
                       }}
-                        onClick={() => handleCoachClick(conn.otherCoach)}
+                        onClick={() => handleCoachClick(group.otherCoach)}
                         onMouseEnter={(e) => e.target.style.color = '#ff6b35'}
                         onMouseLeave={(e) => e.target.style.color = '#fff'}
                       >
-                        {conn.otherCoach.name}
+                        {group.otherCoach.name}
                       </div>
                       <div style={{
                         fontSize: '0.85rem',
                         color: '#f7c59f',
                         marginBottom: '0.5rem'
                       }}>
-                        {conn.otherCoach.currentPosition}
+                        {group.otherCoach.currentPosition}
                       </div>
                       <div style={{
-                        fontSize: '0.75rem',
-                        color: '#8892b0',
-                        padding: '0.25rem 0.5rem',
-                        background: 'rgba(255,255,255,0.05)',
-                        borderRadius: '4px',
-                        display: 'inline-block'
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '0.25rem',
+                        alignItems: 'flex-end'
                       }}>
-                        Was: {conn.otherCoach.position} @ {conn.connectionSchool}
-                        <br />({formatYearRange(conn.otherCoach.years.start, conn.otherCoach.years.end, conn.otherCoach.rawYears)})
+                        {group.overlaps.map((overlap, oIdx) => (
+                          <div 
+                            key={oIdx}
+                            style={{
+                              fontSize: '0.75rem',
+                              color: '#8892b0',
+                              padding: '0.25rem 0.5rem',
+                              background: 'rgba(255,255,255,0.05)',
+                              borderRadius: '4px',
+                              display: 'inline-block'
+                            }}
+                          >
+                            Was: {overlap.otherPosition} @ {overlap.connectionSchool}
+                            <br />({formatYearRange(overlap.otherYears.start, overlap.otherYears.end, overlap.otherRawYears)})
+                          </div>
+                        ))}
                       </div>
                     </div>
                   </div>
