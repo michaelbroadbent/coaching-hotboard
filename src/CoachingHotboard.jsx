@@ -16,6 +16,83 @@ const formatYearRange = (start, end, rawYears = null) => {
   return `${start}–${end}`;
 };
 
+// Calculate age from birthdate string (format: "YYYY-MM-DD" or "Month DD, YYYY")
+const calculateAge = (birthdate) => {
+  if (!birthdate) return null;
+  
+  let birthDate;
+  
+  // Try parsing ISO format (YYYY-MM-DD)
+  if (/^\d{4}-\d{2}-\d{2}$/.test(birthdate)) {
+    birthDate = new Date(birthdate);
+  } else {
+    // Try parsing "Month DD, YYYY" format
+    birthDate = new Date(birthdate);
+  }
+  
+  if (isNaN(birthDate.getTime())) return null;
+  
+  const today = new Date();
+  let age = today.getFullYear() - birthDate.getFullYear();
+  const monthDiff = today.getMonth() - birthDate.getMonth();
+  
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+    age--;
+  }
+  
+  return age;
+};
+
+// Format birthdate for display
+const formatBirthdate = (birthdate) => {
+  if (!birthdate) return null;
+  
+  // If already in readable format, return as is
+  if (/^[A-Z][a-z]+ \d{1,2}, \d{4}$/.test(birthdate)) {
+    return birthdate;
+  }
+  
+  // Try to parse and format ISO date
+  if (/^\d{4}-\d{2}-\d{2}$/.test(birthdate)) {
+    const date = new Date(birthdate);
+    if (!isNaN(date.getTime())) {
+      return date.toLocaleDateString('en-US', { 
+        month: 'long', 
+        day: 'numeric', 
+        year: 'numeric' 
+      });
+    }
+  }
+  
+  return birthdate;
+};
+
+// Get all unique alma maters from coaches
+const getAllAlmaMaters = (data) => {
+  const almaMaters = new Set();
+  data.forEach(coach => {
+    if (coach.alma_mater) {
+      if (Array.isArray(coach.alma_mater)) {
+        coach.alma_mater.forEach(am => almaMaters.add(am));
+      } else {
+        almaMaters.add(coach.alma_mater);
+      }
+    }
+  });
+  return Array.from(almaMaters).sort();
+};
+
+// Find coaches by alma mater
+const getCoachesByAlmaMater = (data, almaMater) => {
+  return data.filter(coach => {
+    if (!coach.alma_mater) return false;
+    if (Array.isArray(coach.alma_mater)) {
+      return coach.alma_mater.some(am => schoolsMatch(am, almaMater));
+    }
+    return schoolsMatch(coach.alma_mater, almaMater);
+  });
+};
+
 // Check if two school names refer to the same school
 const schoolsMatch = (school1, school2) => {
   if (!school1 || !school2) return false;
@@ -169,6 +246,10 @@ export default function CoachingHotboard() {
   const [connections, setConnections] = useState([]);
   const [selectedCoach, setSelectedCoach] = useState(null);
   const [coachingTree, setCoachingTree] = useState(null);
+  const [searchMode, setSearchMode] = useState('school'); // 'school', 'almaMater', or 'coach'
+  const [selectedAlmaMater, setSelectedAlmaMater] = useState('');
+  const [almaMaterCoaches, setAlmaMaterCoaches] = useState([]);
+  const [searchedCoach, setSearchedCoach] = useState(null); // Coach selected from search
   
   // Build coaching tree for a selected coach
   const buildCoachingTree = (coach, allCoachesData) => {
@@ -360,11 +441,34 @@ export default function CoachingHotboard() {
   
   const allSchools = useMemo(() => getAllCurrentTeams(coachesData), [coachesData]);
   
+  const allAlmaMaters = useMemo(() => getAllAlmaMaters(coachesData), [coachesData]);
+  
   const filteredSchools = useMemo(() => {
     if (!searchTerm) return allSchools;
     const term = searchTerm.toLowerCase();
     return allSchools.filter(s => s.toLowerCase().includes(term));
   }, [allSchools, searchTerm]);
+  
+  const filteredAlmaMaters = useMemo(() => {
+    if (!searchTerm) return allAlmaMaters;
+    const term = searchTerm.toLowerCase();
+    return allAlmaMaters.filter(s => s.toLowerCase().includes(term));
+  }, [allAlmaMaters, searchTerm]);
+  
+  // Get all coaches sorted by name
+  const allCoachesSorted = useMemo(() => {
+    return [...coachesData].sort((a, b) => a.name.localeCompare(b.name));
+  }, [coachesData]);
+  
+  const filteredCoaches = useMemo(() => {
+    if (!searchTerm) return allCoachesSorted.slice(0, 50); // Show first 50 by default
+    const term = searchTerm.toLowerCase();
+    return allCoachesSorted.filter(c => 
+      c.name.toLowerCase().includes(term) ||
+      c.currentTeam?.toLowerCase().includes(term) ||
+      c.currentPosition?.toLowerCase().includes(term)
+    );
+  }, [allCoachesSorted, searchTerm]);
   
   // Calculate connections when school is selected - use useEffect to show loading state
   useEffect(() => {
@@ -397,6 +501,51 @@ export default function CoachingHotboard() {
     
     return () => clearTimeout(timer);
   }, [selectedSchool, coachesData]);
+  
+  // Calculate coaches when alma mater is selected
+  useEffect(() => {
+    if (!selectedAlmaMater) {
+      setAlmaMaterCoaches([]);
+      return;
+    }
+    
+    setCalculating(true);
+    
+    const timer = setTimeout(() => {
+      const coaches = getCoachesByAlmaMater(coachesData, selectedAlmaMater);
+      setAlmaMaterCoaches(coaches);
+      setCalculating(false);
+    }, 50);
+    
+    return () => clearTimeout(timer);
+  }, [selectedAlmaMater, coachesData]);
+  
+  // Clear selections when switching search modes
+  const handleSearchModeChange = (mode) => {
+    setSearchMode(mode);
+    setSearchTerm('');
+    
+    // Clear school-related state
+    if (mode !== 'school') {
+      setSelectedSchool('');
+      setCurrentStaff([]);
+      setConnections([]);
+      setSecondarySchool('');
+      setSecondarySearchTerm('');
+      setSelectedStaffMember(null);
+    }
+    
+    // Clear alma mater-related state
+    if (mode !== 'almaMater') {
+      setSelectedAlmaMater('');
+      setAlmaMaterCoaches([]);
+    }
+    
+    // Clear coach search state
+    if (mode !== 'coach') {
+      setSearchedCoach(null);
+    }
+  };
   
   // Filter connections by secondary school and/or staff member
   const filteredConnections = useMemo(() => {
@@ -656,6 +805,68 @@ export default function CoachingHotboard() {
         alignItems: 'end'
       }}>
         <div>
+          {/* Search Mode Toggle */}
+          <div style={{
+            display: 'flex',
+            gap: '0.5rem',
+            marginBottom: '0.75rem'
+          }}>
+            <button
+              onClick={() => handleSearchModeChange('school')}
+              style={{
+                padding: '0.5rem 1rem',
+                background: searchMode === 'school' ? 'rgba(255,107,53,0.3)' : 'rgba(255,255,255,0.05)',
+                border: searchMode === 'school' ? '1px solid rgba(255,107,53,0.5)' : '1px solid rgba(255,255,255,0.1)',
+                borderRadius: '6px',
+                color: searchMode === 'school' ? '#ff6b35' : '#8892b0',
+                cursor: 'pointer',
+                fontSize: '0.75rem',
+                fontWeight: 600,
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              🏈 By School
+            </button>
+            <button
+              onClick={() => handleSearchModeChange('almaMater')}
+              style={{
+                padding: '0.5rem 1rem',
+                background: searchMode === 'almaMater' ? 'rgba(96,165,250,0.3)' : 'rgba(255,255,255,0.05)',
+                border: searchMode === 'almaMater' ? '1px solid rgba(96,165,250,0.5)' : '1px solid rgba(255,255,255,0.1)',
+                borderRadius: '6px',
+                color: searchMode === 'almaMater' ? '#60a5fa' : '#8892b0',
+                cursor: 'pointer',
+                fontSize: '0.75rem',
+                fontWeight: 600,
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              🎓 By Alma Mater
+            </button>
+            <button
+              onClick={() => handleSearchModeChange('coach')}
+              style={{
+                padding: '0.5rem 1rem',
+                background: searchMode === 'coach' ? 'rgba(74,222,128,0.3)' : 'rgba(255,255,255,0.05)',
+                border: searchMode === 'coach' ? '1px solid rgba(74,222,128,0.5)' : '1px solid rgba(255,255,255,0.1)',
+                borderRadius: '6px',
+                color: searchMode === 'coach' ? '#4ade80' : '#8892b0',
+                cursor: 'pointer',
+                fontSize: '0.75rem',
+                fontWeight: 600,
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              👤 By Coach
+            </button>
+          </div>
+          
           <label style={{
             display: 'block',
             marginBottom: '0.5rem',
@@ -664,19 +875,19 @@ export default function CoachingHotboard() {
             letterSpacing: '0.15em',
             textTransform: 'uppercase'
           }}>
-            Select a School
+            {searchMode === 'school' ? 'Select a School' : searchMode === 'almaMater' ? 'Select an Alma Mater' : 'Search for a Coach'}
           </label>
           <div style={{ position: 'relative' }}>
             <input
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Type to search schools..."
+              placeholder={searchMode === 'school' ? "Type to search schools..." : searchMode === 'almaMater' ? "Type to search alma maters..." : "Type coach name, team, or position..."}
               style={{
                 width: '100%',
                 padding: '1rem 1.5rem',
                 background: 'rgba(255,255,255,0.03)',
-                border: '1px solid rgba(255,107,53,0.2)',
+                border: `1px solid ${searchMode === 'school' ? 'rgba(255,107,53,0.2)' : searchMode === 'almaMater' ? 'rgba(96,165,250,0.2)' : 'rgba(74,222,128,0.2)'}`,
                 borderRadius: '8px',
                 color: '#fff',
                 fontSize: '1rem',
@@ -684,10 +895,10 @@ export default function CoachingHotboard() {
                 transition: 'all 0.3s ease',
                 boxSizing: 'border-box'
               }}
-              onFocus={(e) => e.target.style.borderColor = 'rgba(255,107,53,0.6)'}
-              onBlur={(e) => e.target.style.borderColor = 'rgba(255,107,53,0.2)'}
+              onFocus={(e) => e.target.style.borderColor = searchMode === 'school' ? 'rgba(255,107,53,0.6)' : searchMode === 'almaMater' ? 'rgba(96,165,250,0.6)' : 'rgba(74,222,128,0.6)'}
+              onBlur={(e) => e.target.style.borderColor = searchMode === 'school' ? 'rgba(255,107,53,0.2)' : searchMode === 'almaMater' ? 'rgba(96,165,250,0.2)' : 'rgba(74,222,128,0.2)'}
             />
-            {searchTerm && filteredSchools.length > 0 && (
+            {searchMode === 'school' && searchTerm && filteredSchools.length > 0 && (
               <div style={{
                 position: 'absolute',
                 top: '100%',
@@ -722,41 +933,426 @@ export default function CoachingHotboard() {
                 ))}
               </div>
             )}
+            {searchMode === 'almaMater' && searchTerm && filteredAlmaMaters.length > 0 && (
+              <div style={{
+                position: 'absolute',
+                top: '100%',
+                left: 0,
+                right: 0,
+                background: '#1a1a2e',
+                border: '1px solid rgba(96,165,250,0.3)',
+                borderRadius: '8px',
+                marginTop: '4px',
+                maxHeight: '300px',
+                overflowY: 'auto',
+                zIndex: 100
+              }}>
+                {filteredAlmaMaters.slice(0, 500).map(almaMater => (
+                  <div
+                    key={almaMater}
+                    onClick={() => {
+                      setSelectedAlmaMater(almaMater);
+                      setSearchTerm('');
+                    }}
+                    style={{
+                      padding: '0.75rem 1rem',
+                      cursor: 'pointer',
+                      borderBottom: '1px solid rgba(255,255,255,0.05)',
+                      transition: 'background 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => e.target.style.background = 'rgba(96,165,250,0.1)'}
+                    onMouseLeave={(e) => e.target.style.background = 'transparent'}
+                  >
+                    {almaMater}
+                  </div>
+                ))}
+              </div>
+            )}
+            {searchMode === 'coach' && searchTerm && filteredCoaches.length > 0 && (
+              <div style={{
+                position: 'absolute',
+                top: '100%',
+                left: 0,
+                right: 0,
+                background: '#1a1a2e',
+                border: '1px solid rgba(74,222,128,0.3)',
+                borderRadius: '8px',
+                marginTop: '4px',
+                maxHeight: '300px',
+                overflowY: 'auto',
+                zIndex: 100
+              }}>
+                {filteredCoaches.slice(0, 50).map((coach, idx) => (
+                  <div
+                    key={coach.url || idx}
+                    onClick={() => {
+                      setSearchedCoach(coach);
+                      setSearchTerm('');
+                    }}
+                    style={{
+                      padding: '0.75rem 1rem',
+                      cursor: 'pointer',
+                      borderBottom: '1px solid rgba(255,255,255,0.05)',
+                      transition: 'background 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(74,222,128,0.1)'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                  >
+                    <div style={{ fontWeight: 600, color: '#fff' }}>{coach.name}</div>
+                    <div style={{ fontSize: '0.8rem', color: '#8892b0' }}>
+                      {coach.currentPosition} @ {coach.currentTeam}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
         
-        {/* View Toggle */}
-        <div style={{
-          display: 'flex',
-          gap: '0.5rem',
-          background: 'rgba(255,255,255,0.03)',
-          padding: '0.5rem',
-          borderRadius: '8px',
-          border: '1px solid rgba(255,107,53,0.2)'
-        }}>
-          {[{id: 'overlaps', label: 'All Connections'}, {id: 'timeline', label: 'By Coach'}].map(mode => (
-            <button
-              key={mode.id}
-              onClick={() => setViewMode(mode.id)}
-              style={{
-                padding: '0.75rem 1.25rem',
-                background: viewMode === mode.id ? 'rgba(255,107,53,0.3)' : 'transparent',
-                border: 'none',
-                borderRadius: '6px',
-                color: viewMode === mode.id ? '#ff6b35' : '#8892b0',
-                cursor: 'pointer',
-                fontSize: '0.85rem',
-                fontWeight: 600,
-                textTransform: 'uppercase',
-                letterSpacing: '0.05em',
-                transition: 'all 0.2s ease'
-              }}
-            >
-              {mode.label}
-            </button>
-          ))}
-        </div>
+        {/* View Toggle - only show for school search */}
+        {searchMode === 'school' && (
+          <div style={{
+            display: 'flex',
+            gap: '0.5rem',
+            background: 'rgba(255,255,255,0.03)',
+            padding: '0.5rem',
+            borderRadius: '8px',
+            border: '1px solid rgba(255,107,53,0.2)'
+          }}>
+            {[{id: 'overlaps', label: 'All Connections'}, {id: 'timeline', label: 'By Coach'}].map(mode => (
+              <button
+                key={mode.id}
+                onClick={() => setViewMode(mode.id)}
+                style={{
+                  padding: '0.75rem 1.25rem',
+                  background: viewMode === mode.id ? 'rgba(255,107,53,0.3)' : 'transparent',
+                  border: 'none',
+                  borderRadius: '6px',
+                  color: viewMode === mode.id ? '#ff6b35' : '#8892b0',
+                  cursor: 'pointer',
+                  fontSize: '0.85rem',
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                  transition: 'all 0.2s ease'
+                }}
+              >
+                {mode.label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
+
+      {/* Selected Alma Mater Badge & Results */}
+      {selectedAlmaMater && (
+        <div style={{
+          maxWidth: '1200px',
+          margin: '0 auto 2rem'
+        }}>
+          {/* Badge */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '1rem',
+            marginBottom: '1.5rem'
+          }}>
+            <div style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.75rem',
+              background: 'linear-gradient(135deg, rgba(96,165,250,0.2), rgba(147,197,253,0.1))',
+              padding: '0.75rem 1.25rem',
+              borderRadius: '100px',
+              border: '1px solid rgba(96,165,250,0.4)'
+            }}>
+              <span style={{ fontSize: '1.5rem' }}>🎓</span>
+              <span style={{ fontWeight: 700, color: '#93c5fd' }}>{selectedAlmaMater}</span>
+              <button
+                onClick={() => setSelectedAlmaMater('')}
+                style={{
+                  background: 'rgba(255,255,255,0.1)',
+                  border: 'none',
+                  borderRadius: '50%',
+                  width: '24px',
+                  height: '24px',
+                  cursor: 'pointer',
+                  color: '#888',
+                  fontSize: '1rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                ×
+              </button>
+            </div>
+            {!calculating && (
+              <div style={{ color: '#8892b0', fontSize: '0.9rem' }}>
+                <span style={{ color: '#60a5fa', fontWeight: 700 }}>{almaMaterCoaches.length}</span> current coaches
+              </div>
+            )}
+          </div>
+          
+          {/* Coaches Grid */}
+          {!calculating && almaMaterCoaches.length > 0 && (
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+              gap: '1rem'
+            }}>
+              {almaMaterCoaches.map((coach, idx) => (
+                <div
+                  key={idx}
+                  onClick={() => handleCoachClick(coach)}
+                  style={{
+                    background: 'rgba(96,165,250,0.05)',
+                    border: '1px solid rgba(96,165,250,0.2)',
+                    borderRadius: '12px',
+                    padding: '1.25rem',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = 'rgba(96,165,250,0.5)';
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = 'rgba(96,165,250,0.2)';
+                    e.currentTarget.style.transform = 'translateY(0)';
+                  }}
+                >
+                  <div style={{ fontWeight: 700, color: '#fff', fontSize: '1.1rem', marginBottom: '0.25rem' }}>
+                    {coach.name}
+                  </div>
+                  <div style={{ color: '#60a5fa', fontSize: '0.9rem', marginBottom: '0.5rem' }}>
+                    {coach.currentPosition} @ {coach.currentTeam}
+                  </div>
+                  {coach.birthdate && (
+                    <div style={{ color: '#8892b0', fontSize: '0.8rem' }}>
+                      Age: {calculateAge(coach.birthdate)}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          
+          {!calculating && almaMaterCoaches.length === 0 && (
+            <div style={{
+              textAlign: 'center',
+              padding: '3rem',
+              color: '#8892b0'
+            }}>
+              No coaches found with this alma mater.
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Searched Coach Display */}
+      {searchedCoach && (
+        <div style={{
+          maxWidth: '1200px',
+          margin: '0 auto 2rem'
+        }}>
+          {/* Badge */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '1rem',
+            marginBottom: '1.5rem'
+          }}>
+            <div style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.75rem',
+              background: 'linear-gradient(135deg, rgba(74,222,128,0.2), rgba(134,239,172,0.1))',
+              padding: '0.75rem 1.25rem',
+              borderRadius: '100px',
+              border: '1px solid rgba(74,222,128,0.4)'
+            }}>
+              <span style={{ fontSize: '1.5rem' }}>👤</span>
+              <span style={{ fontWeight: 700, color: '#86efac' }}>{searchedCoach.name}</span>
+              <button
+                onClick={() => setSearchedCoach(null)}
+                style={{
+                  background: 'rgba(255,255,255,0.1)',
+                  border: 'none',
+                  borderRadius: '50%',
+                  width: '24px',
+                  height: '24px',
+                  cursor: 'pointer',
+                  color: '#888',
+                  fontSize: '1rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                ×
+              </button>
+            </div>
+          </div>
+          
+          {/* Coach Card */}
+          <div style={{
+            background: 'rgba(74,222,128,0.05)',
+            border: '1px solid rgba(74,222,128,0.2)',
+            borderRadius: '16px',
+            padding: '2rem',
+            maxWidth: '600px'
+          }}>
+            <div style={{ 
+              display: 'flex', 
+              justifyContent: 'space-between', 
+              alignItems: 'flex-start',
+              marginBottom: '1.5rem'
+            }}>
+              <div>
+                <h2 style={{ 
+                  fontSize: '1.75rem', 
+                  fontWeight: 700, 
+                  color: '#fff',
+                  marginBottom: '0.25rem'
+                }}>
+                  {searchedCoach.name}
+                  {searchedCoach.birthdate && (
+                    <span style={{ 
+                      fontSize: '1rem', 
+                      fontWeight: 400, 
+                      color: '#8892b0',
+                      marginLeft: '0.75rem'
+                    }}>
+                      (Age {calculateAge(searchedCoach.birthdate)})
+                    </span>
+                  )}
+                </h2>
+                <div style={{ color: '#4ade80', fontSize: '1.1rem' }}>
+                  {searchedCoach.currentPosition} @ {searchedCoach.currentTeam}
+                </div>
+              </div>
+              <button
+                onClick={() => handleCoachClick(searchedCoach)}
+                style={{
+                  padding: '0.75rem 1.5rem',
+                  background: 'rgba(74,222,128,0.2)',
+                  border: '1px solid rgba(74,222,128,0.4)',
+                  borderRadius: '8px',
+                  color: '#4ade80',
+                  cursor: 'pointer',
+                  fontSize: '0.85rem',
+                  fontWeight: 600,
+                  transition: 'all 0.2s ease'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'rgba(74,222,128,0.3)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'rgba(74,222,128,0.2)';
+                }}
+              >
+                View Full Profile →
+              </button>
+            </div>
+            
+            {/* Bio Details */}
+            {(searchedCoach.birthdate || searchedCoach.birthplace || searchedCoach.alma_mater) && (
+              <div style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: '1.5rem',
+                marginBottom: '1.5rem',
+                paddingBottom: '1.5rem',
+                borderBottom: '1px solid rgba(255,255,255,0.1)'
+              }}>
+                {searchedCoach.birthdate && (
+                  <div style={{ fontSize: '0.9rem' }}>
+                    <span style={{ color: '#8892b0' }}>🎂 Born: </span>
+                    <span style={{ color: '#ccd6f6' }}>{formatBirthdate(searchedCoach.birthdate)} (Age {calculateAge(searchedCoach.birthdate)})</span>
+                  </div>
+                )}
+                {searchedCoach.birthplace && (
+                  <div style={{ fontSize: '0.9rem' }}>
+                    <span style={{ color: '#8892b0' }}>📍 From: </span>
+                    <span style={{ color: '#ccd6f6' }}>{searchedCoach.birthplace}</span>
+                  </div>
+                )}
+                {searchedCoach.alma_mater && (
+                  <div style={{ fontSize: '0.9rem' }}>
+                    <span style={{ color: '#8892b0' }}>🎓 Played at: </span>
+                    <span style={{ color: '#ccd6f6' }}>
+                      {Array.isArray(searchedCoach.alma_mater) 
+                        ? searchedCoach.alma_mater.join(', ') 
+                        : searchedCoach.alma_mater}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+            
+            {/* Recent Career */}
+            <div>
+              <h3 style={{
+                fontSize: '0.85rem',
+                fontWeight: 700,
+                color: '#8892b0',
+                marginBottom: '0.75rem',
+                textTransform: 'uppercase',
+                letterSpacing: '0.1em'
+              }}>
+                Recent Career
+              </h3>
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.5rem'
+              }}>
+                {searchedCoach.coaching_career?.slice(-5).reverse().map((job, idx) => (
+                  <div
+                    key={idx}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '80px 1fr',
+                      gap: '1rem',
+                      padding: '0.5rem 0.75rem',
+                      background: job.position?.toLowerCase().startsWith('head coach') 
+                        ? 'rgba(74,222,128,0.1)' 
+                        : 'rgba(255,255,255,0.03)',
+                      borderRadius: '6px',
+                      borderLeft: job.position?.toLowerCase().startsWith('head coach')
+                        ? '3px solid #4ade80'
+                        : '3px solid transparent'
+                    }}
+                  >
+                    <div style={{ 
+                      color: '#8892b0', 
+                      fontSize: '0.8rem',
+                      fontFamily: 'monospace'
+                    }}>
+                      {formatYearRange(job.years?.start, job.years?.end, job.raw_years)}
+                    </div>
+                    <div>
+                      <span style={{ color: '#f7c59f', fontWeight: 500 }}>{job.school}</span>
+                      <span style={{ color: '#8892b0' }}> — {job.position}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {searchedCoach.coaching_career?.length > 5 && (
+                <div style={{ 
+                  marginTop: '0.75rem', 
+                  fontSize: '0.8rem', 
+                  color: '#8892b0',
+                  textAlign: 'center'
+                }}>
+                  + {searchedCoach.coaching_career.length - 5} more positions
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Selected School Badge */}
       {selectedSchool && (
@@ -1495,7 +2091,7 @@ export default function CoachingHotboard() {
       )}
 
       {/* Empty State */}
-      {!selectedSchool && !calculating && (
+      {!selectedSchool && !selectedAlmaMater && !searchedCoach && !calculating && (
         <div style={{
           textAlign: 'center',
           padding: '4rem 2rem',
@@ -1515,16 +2111,17 @@ export default function CoachingHotboard() {
             marginBottom: '1rem',
             fontWeight: 700
           }}>
-            Select a School to Explore
+            Start Exploring
           </h2>
           <p style={{
             color: '#8892b0',
             lineHeight: 1.6,
             marginBottom: '2rem'
           }}>
-            Discover coaching connections & see which coaches worked together 
-            in the past. Perfect for building a coaching hotboard or 
-            understanding coaching trees.
+            Search by <strong style={{ color: '#ff6b35' }}>school</strong> to discover coaching connections 
+            and see which coaches worked together. Search by <strong style={{ color: '#60a5fa' }}>alma mater</strong> to 
+            find coaches who played at a specific school. Or search by <strong style={{ color: '#4ade80' }}>coach</strong> to 
+            look up any coach directly.
           </p>
         </div>
       )}
@@ -1598,10 +2195,70 @@ export default function CoachingHotboard() {
                 marginBottom: '0.25rem'
               }}>
                 {selectedCoach.name}
+                {selectedCoach.birthdate && (
+                  <span style={{ 
+                    fontSize: '1rem', 
+                    fontWeight: 400, 
+                    color: '#8892b0',
+                    marginLeft: '0.75rem'
+                  }}>
+                    (Age {calculateAge(selectedCoach.birthdate)})
+                  </span>
+                )}
               </h2>
-              <div style={{ color: '#f7c59f', fontSize: '1rem' }}>
+              <div style={{ color: '#f7c59f', fontSize: '1rem', marginBottom: '0.75rem' }}>
                 {selectedCoach.currentPosition} @ {selectedCoach.currentTeam}
               </div>
+              
+              {/* Bio Details */}
+              {(selectedCoach.birthdate || selectedCoach.birthplace || selectedCoach.alma_mater) && (
+                <div style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: '1rem',
+                  marginTop: '0.5rem',
+                  paddingTop: '0.75rem',
+                  borderTop: '1px solid rgba(255,255,255,0.1)'
+                }}>
+                  {selectedCoach.birthdate && (
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      fontSize: '0.85rem'
+                    }}>
+                      <span style={{ color: '#8892b0' }}>🎂</span>
+                      <span style={{ color: '#ccd6f6' }}>{formatBirthdate(selectedCoach.birthdate)} (Age {calculateAge(selectedCoach.birthdate)})</span>
+                    </div>
+                  )}
+                  {selectedCoach.birthplace && (
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      fontSize: '0.85rem'
+                    }}>
+                      <span style={{ color: '#8892b0' }}>📍</span>
+                      <span style={{ color: '#ccd6f6' }}>{selectedCoach.birthplace}</span>
+                    </div>
+                  )}
+                  {selectedCoach.alma_mater && (
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      fontSize: '0.85rem'
+                    }}>
+                      <span style={{ color: '#8892b0' }}>🎓</span>
+                      <span style={{ color: '#ccd6f6' }}>
+                        {Array.isArray(selectedCoach.alma_mater) 
+                          ? selectedCoach.alma_mater.join(', ') 
+                          : selectedCoach.alma_mater}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
             
             {/* Modal Content */}
