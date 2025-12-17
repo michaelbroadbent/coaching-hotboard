@@ -231,8 +231,289 @@ const dedupeConnections = (connections) => {
   });
 };
 
+// Format salary for display
+const formatSalary = (amount) => {
+  if (!amount) return null;
+  if (amount >= 1000000) {
+    return `$${(amount / 1000000).toFixed(1)}M`;
+  } else if (amount >= 1000) {
+    return `$${Math.round(amount / 1000)}K`;
+  }
+  return `$${amount.toLocaleString()}`;
+};
+
+// Get salary info for a coach - first check coach object, then fall back to statsData
+const getSalaryInfo = (coach, statsData) => {
+  if (!coach) return null;
+  
+  // First check if coach has salary in their object
+  if (coach.salary && coach.salary.length > 0) {
+    const salaryEntry = coach.salary[0];
+    const amount = salaryEntry['2024'];
+    const salarySchool = salaryEntry.school; // Only present if different from current team
+    
+    if (amount) {
+      return {
+        amount,
+        formatted: formatSalary(amount),
+        school: salarySchool || null,
+        sameSchool: !salarySchool // If no school field, they're at the same school
+      };
+    }
+  }
+  
+  // Fall back to statsData lookup
+  if (!statsData?.salaries || !coach.name) return null;
+  
+  const normalizedName = coach.name.toLowerCase().trim();
+  const salaryEntry = statsData.salaries[normalizedName];
+  
+  if (!salaryEntry) return null;
+  
+  const formatted = formatSalary(salaryEntry.amount);
+  const sameSchool = normalizeSchool(salaryEntry.school) === normalizeSchool(coach.currentTeam);
+  
+  return {
+    amount: salaryEntry.amount,
+    formatted,
+    school: salaryEntry.school,
+    sameSchool
+  };
+};
+
+// Determine position type: 'hc', 'oc', 'dc', or null
+const getPositionType = (position) => {
+  if (!position) return null;
+  const pos = position.toLowerCase();
+  
+  // Check for Head Coach first
+  if (pos.includes('head coach') && !pos.includes('assistant head coach')) {
+    return 'hc';
+  }
+  
+  // Check for OC - full name or abbreviation
+  // Match: "offensive coordinator", "OC", "OC/QB", "co-oc", etc.
+  if (pos.includes('offensive coordinator') || 
+      pos.includes('co-offensive coordinator') ||
+      /\boc\b/.test(pos) ||  // standalone "oc"
+      /\boc\//.test(pos) ||  // "oc/" like "oc/qb"
+      /\/oc\b/.test(pos)) {  // "/oc" like "ahc/oc"
+    return 'oc';
+  }
+  
+  // Check for DC - full name or abbreviation
+  // Match: "defensive coordinator", "DC", "AHC/DC", "co-dc", etc.
+  if (pos.includes('defensive coordinator') || 
+      pos.includes('co-defensive coordinator') ||
+      /\bdc\b/.test(pos) ||  // standalone "dc"
+      /\bdc\//.test(pos) ||  // "dc/" 
+      /\/dc\b/.test(pos)) {  // "/dc" like "ahc/dc"
+    return 'dc';
+  }
+  
+  return null;
+};
+
+// Normalize team name for stats lookup
+const normalizeTeamForStats = (team) => {
+  if (!team) return '';
+  
+  // Map from coaches_data team names to stats team names
+  const teamMappings = {
+    'appalachian state': 'App State',
+    'appalachian state mountaineers': 'App State',
+    'arizona state': 'Arizona St',
+    'arkansas state': 'Arkansas St',
+    'ball state': 'Ball St',
+    'boise state': 'Boise St',
+    'central michigan': 'C Michigan',
+    'coastal carolina': 'Coastal Car',
+    'colorado state': 'Colorado St',
+    'east carolina': 'E Carolina',
+    'eastern michigan': 'E Michigan',
+    'florida state': 'Florida St',
+    'florida international': 'Florida Intl',
+    'fiu': 'Florida Intl',
+    'fresno state': 'Fresno St',
+    'georgia southern': 'Georgia So',
+    'georgia state': 'Georgia St',
+    'iowa state': 'Iowa St',
+    'james madison': 'J Madison',
+    'jacksonville state': 'Jacksonville St',
+    'kansas state': 'Kansas St',
+    'kennesaw state': 'Kennesaw St',
+    'kent state': 'Kent St',
+    'louisiana state': 'LSU',
+    'michigan state': 'Michigan St',
+    'middle tennessee': 'Middle Tenn',
+    'mississippi state': 'Mississippi St',
+    'missouri state': 'Missouri St',
+    'new mexico state': 'New Mexico St',
+    'north carolina state': 'NC State',
+    'nc state': 'NC State',
+    'north texas': 'N Texas',
+    'northern illinois': 'N Illinois',
+    'ohio state': 'Ohio St',
+    'oklahoma state': 'Oklahoma St',
+    'oregon state': 'Oregon St',
+    'penn state': 'Penn St',
+    'south alabama': 'S Alabama',
+    'south florida': 'S Florida',
+    'usf': 'S Florida',
+    'san diego state': 'San Diego St',
+    'san jose state': 'San Jose St',
+    'southern california': 'USC',
+    'southern methodist': 'SMU',
+    'southern mississippi': 'Southern Miss',
+    'southern miss': 'Southern Miss',
+    'texas christian': 'TCU',
+    'texas state': 'Texas St',
+    'louisiana-monroe': 'UL Monroe',
+    'ul monroe': 'UL Monroe',
+    'utah state': 'Utah St',
+    'washington state': 'Washington St',
+    'western michigan': 'W Michigan',
+    'western kentucky': 'W Kentucky',
+    'central florida': 'UCF',
+    'ucf': 'UCF',
+    'massachusetts': 'UMass',
+    'umass': 'UMass',
+    'connecticut': 'UConn',
+    'uconn': 'UConn',
+    'unlv': 'UNLV',
+    'utep': 'UTEP',
+    'utsa': 'UTSA',
+    'uab': 'UAB',
+    'miami (fl)': 'Miami',
+    'miami (oh)': 'Miami OH',
+    'ole miss': 'Mississippi',
+    'mississippi': 'Mississippi',
+  };
+  
+  const normalized = team.toLowerCase().trim();
+  return teamMappings[normalized] || team;
+};
+
+// Check if coach has any HC/OC/DC experience
+const hasCoordinatorExperience = (coach) => {
+  if (!coach?.coaching_career) return false;
+  return coach.coaching_career.some(job => getPositionType(job.position) !== null);
+};
+
+// Get stats years for a coach based on their roles
+const getCoachStatsYears = (coach, statsData) => {
+  if (!coach?.coaching_career || !statsData) {
+    return [];
+  }
+  
+  const statsYears = [];
+  
+  // Helper to find team in basic stats (stat -> team -> year -> {value, rank})
+  const findBasicStat = (statCategory, statKey, team, yearStr) => {
+    const normalizedTeam = normalizeTeamForStats(team);
+    let val = statCategory?.[statKey]?.[normalizedTeam]?.[yearStr];
+    if (val === undefined) {
+      val = statCategory?.[statKey]?.[team]?.[yearStr];
+    }
+    return val; // Returns {value, rank} or undefined
+  };
+  
+  // Helper to find team in advanced stats (year -> team -> stats)
+  const findAdvancedStats = (advancedCategory, team, yearStr) => {
+    const normalizedTeam = normalizeTeamForStats(team);
+    let val = advancedCategory?.[yearStr]?.[normalizedTeam];
+    if (val === undefined) {
+      val = advancedCategory?.[yearStr]?.[team];
+    }
+    return val; // Returns object with all advanced stats or undefined
+  };
+  
+  coach.coaching_career.forEach(job => {
+    const posType = getPositionType(job.position);
+    if (!posType) return;
+    
+    const team = job.school;
+    const startYear = job.years?.start;
+    const endYear = job.years?.end || new Date().getFullYear();
+    
+    if (!startYear) return;
+    
+    for (let year = startYear; year <= endYear; year++) {
+      const yearStr = String(year);
+      
+      // Get ALL basic offensive stats
+      const offenseStats = {
+        ppg: findBasicStat(statsData.offense, 'PointsPerGame', team, yearStr),
+        ypg: findBasicStat(statsData.offense, 'YardsPerGame', team, yearStr),
+        rushYpg: findBasicStat(statsData.offense, 'RushYardsPerGame', team, yearStr),
+        passYpg: findBasicStat(statsData.offense, 'PassYardsPerGame', team, yearStr),
+        sacked: findBasicStat(statsData.offense, 'QBSackedPerGame', team, yearStr),
+        ypa: findBasicStat(statsData.offense, 'YardsPerPassAtt', team, yearStr),
+      };
+      
+      // Get ALL basic defensive stats
+      const defenseStats = {
+        ppg: findBasicStat(statsData.defense, 'OppPointsPerGame', team, yearStr),
+        ypg: findBasicStat(statsData.defense, 'OppYardsPerGame', team, yearStr),
+        rushYpg: findBasicStat(statsData.defense, 'OppRushYPG', team, yearStr),
+        passYpg: findBasicStat(statsData.defense, 'OppPassYPG', team, yearStr),
+        sacks: findBasicStat(statsData.defense, 'SacksPerGame', team, yearStr),
+        takeaways: findBasicStat(statsData.defense, 'TakeawaysPerGame', team, yearStr),
+      };
+      
+      // Get advanced stats (2014+)
+      const advOff = findAdvancedStats(statsData.advancedOffense, team, yearStr);
+      const advDef = findAdvancedStats(statsData.advancedDefense, team, yearStr);
+      
+      // Only include if we have relevant stats
+      let stats = null;
+      const hasOffense = offenseStats.ppg !== undefined;
+      const hasDefense = defenseStats.ppg !== undefined;
+      
+      if (posType === 'hc') {
+        if (hasOffense || hasDefense) {
+          stats = { 
+            offense: hasOffense ? offenseStats : null,
+            defense: hasDefense ? defenseStats : null,
+            advancedOffense: advOff,
+            advancedDefense: advDef
+          };
+        }
+      } else if (posType === 'oc') {
+        if (hasOffense) {
+          stats = { 
+            offense: offenseStats,
+            advancedOffense: advOff
+          };
+        }
+      } else if (posType === 'dc') {
+        if (hasDefense) {
+          stats = { 
+            defense: defenseStats,
+            advancedDefense: advDef
+          };
+        }
+      }
+      
+      if (stats) {
+        statsYears.push({
+          year,
+          team,
+          position: job.position,
+          positionType: posType,
+          ...stats
+        });
+      }
+    }
+  });
+  
+  // Sort by year descending
+  return statsYears.sort((a, b) => b.year - a.year);
+};
+
 export default function CoachingHotboard() {
   const [coachesData, setCoachesData] = useState([]);
+  const [statsData, setStatsData] = useState(null); // Salaries and team stats
   const [loading, setLoading] = useState(true);
   const [calculating, setCalculating] = useState(false);
   const [error, setError] = useState(null);
@@ -250,6 +531,8 @@ export default function CoachingHotboard() {
   const [selectedAlmaMater, setSelectedAlmaMater] = useState('');
   const [almaMaterCoaches, setAlmaMaterCoaches] = useState([]);
   const [searchedCoach, setSearchedCoach] = useState(null); // Coach selected from search
+  const [modalTab, setModalTab] = useState('career'); // 'career', 'tree', or 'stats'
+  const [advancedStatsView, setAdvancedStatsView] = useState('offense'); // 'offense' or 'defense' for HC stats
   
   // Build coaching tree for a selected coach
   const buildCoachingTree = (coach, allCoachesData) => {
@@ -414,29 +697,42 @@ export default function CoachingHotboard() {
     const fullCoach = coachesData.find(c => c.name === coach.name) || coach;
     setSelectedCoach(fullCoach);
     setCoachingTree(buildCoachingTree(fullCoach, coachesData));
+    setModalTab('career'); // Reset to career tab
   };
   
   // Close modal
   const closeModal = () => {
     setSelectedCoach(null);
     setCoachingTree(null);
+    setModalTab('career'); // Reset tab
+    setAdvancedStatsView('offense'); // Reset advanced stats view
   };
   
   // Load data from JSON file
   useEffect(() => {
-    fetch(import.meta.env.BASE_URL + 'coaches_data.json')
-      .then(res => {
+    // Load both coaches data and stats data
+    Promise.all([
+      fetch(import.meta.env.BASE_URL + 'coaches_data.json').then(res => {
         if (!res.ok) throw new Error('Failed to load coaches data');
         return res.json();
-      })
-      .then(data => {
-        setCoachesData(data);
-        setLoading(false);
-      })
-      .catch(err => {
-        setError(err.message);
-        setLoading(false);
-      });
+      }),
+      fetch(import.meta.env.BASE_URL + 'coaching_stats_data.json').then(res => {
+        if (!res.ok) {
+          console.warn('Stats data not available');
+          return null;
+        }
+        return res.json();
+      }).catch(() => null) // Stats data is optional
+    ])
+    .then(([coachData, statsDataResult]) => {
+      setCoachesData(coachData);
+      setStatsData(statsDataResult);
+      setLoading(false);
+    })
+    .catch(err => {
+      setError(err.message);
+      setLoading(false);
+    });
   }, []);
   
   const allSchools = useMemo(() => getAllCurrentTeams(coachesData), [coachesData]);
@@ -1257,39 +1553,57 @@ export default function CoachingHotboard() {
             </div>
             
             {/* Bio Details */}
-            {(searchedCoach.birthdate || searchedCoach.birthplace || searchedCoach.alma_mater) && (
-              <div style={{
-                display: 'flex',
-                flexWrap: 'wrap',
-                gap: '1.5rem',
-                marginBottom: '1.5rem',
-                paddingBottom: '1.5rem',
-                borderBottom: '1px solid rgba(255,255,255,0.1)'
-              }}>
-                {searchedCoach.birthdate && (
-                  <div style={{ fontSize: '0.9rem' }}>
-                    <span style={{ color: '#8892b0' }}>🎂 Born: </span>
-                    <span style={{ color: '#ccd6f6' }}>{formatBirthdate(searchedCoach.birthdate)} (Age {calculateAge(searchedCoach.birthdate)})</span>
-                  </div>
-                )}
-                {searchedCoach.birthplace && (
-                  <div style={{ fontSize: '0.9rem' }}>
-                    <span style={{ color: '#8892b0' }}>📍 From: </span>
-                    <span style={{ color: '#ccd6f6' }}>{searchedCoach.birthplace}</span>
-                  </div>
-                )}
-                {searchedCoach.alma_mater && (
-                  <div style={{ fontSize: '0.9rem' }}>
-                    <span style={{ color: '#8892b0' }}>🎓 Played at: </span>
-                    <span style={{ color: '#ccd6f6' }}>
-                      {Array.isArray(searchedCoach.alma_mater) 
-                        ? searchedCoach.alma_mater.join(', ') 
-                        : searchedCoach.alma_mater}
-                    </span>
-                  </div>
-                )}
-              </div>
-            )}
+            {(() => {
+              const salaryInfo = getSalaryInfo(searchedCoach, statsData);
+              const hasBioDetails = searchedCoach.birthdate || searchedCoach.birthplace || searchedCoach.alma_mater || salaryInfo;
+              
+              return hasBioDetails ? (
+                <div style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: '1.5rem',
+                  marginBottom: '1.5rem',
+                  paddingBottom: '1.5rem',
+                  borderBottom: '1px solid rgba(255,255,255,0.1)'
+                }}>
+                  {searchedCoach.birthdate && (
+                    <div style={{ fontSize: '0.9rem' }}>
+                      <span style={{ color: '#8892b0' }}>🎂 Born: </span>
+                      <span style={{ color: '#ccd6f6' }}>{formatBirthdate(searchedCoach.birthdate)} (Age {calculateAge(searchedCoach.birthdate)})</span>
+                    </div>
+                  )}
+                  {searchedCoach.birthplace && (
+                    <div style={{ fontSize: '0.9rem' }}>
+                      <span style={{ color: '#8892b0' }}>📍 From: </span>
+                      <span style={{ color: '#ccd6f6' }}>{searchedCoach.birthplace}</span>
+                    </div>
+                  )}
+                  {searchedCoach.alma_mater && (
+                    <div style={{ fontSize: '0.9rem' }}>
+                      <span style={{ color: '#8892b0' }}>🎓 Played at: </span>
+                      <span style={{ color: '#ccd6f6' }}>
+                        {Array.isArray(searchedCoach.alma_mater) 
+                          ? searchedCoach.alma_mater.join(', ') 
+                          : searchedCoach.alma_mater}
+                      </span>
+                    </div>
+                  )}
+                  {salaryInfo && (
+                    <div style={{ fontSize: '0.9rem' }}>
+                      <span style={{ color: '#8892b0' }}>💰 2024: </span>
+                      <span style={{ color: '#4ade80' }}>
+                        {salaryInfo.formatted}
+                        {!salaryInfo.sameSchool && (
+                          <span style={{ color: '#8892b0', marginLeft: '0.25rem' }}>
+                            ({salaryInfo.school})
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              ) : null;
+            })()}
             
             {/* Recent Career */}
             <div>
@@ -2211,114 +2525,204 @@ export default function CoachingHotboard() {
               </div>
               
               {/* Bio Details */}
-              {(selectedCoach.birthdate || selectedCoach.birthplace || selectedCoach.alma_mater) && (
-                <div style={{
-                  display: 'flex',
-                  flexWrap: 'wrap',
-                  gap: '1rem',
-                  marginTop: '0.5rem',
-                  paddingTop: '0.75rem',
-                  borderTop: '1px solid rgba(255,255,255,0.1)'
-                }}>
-                  {selectedCoach.birthdate && (
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.5rem',
-                      fontSize: '0.85rem'
-                    }}>
-                      <span style={{ color: '#8892b0' }}>🎂</span>
-                      <span style={{ color: '#ccd6f6' }}>{formatBirthdate(selectedCoach.birthdate)} (Age {calculateAge(selectedCoach.birthdate)})</span>
-                    </div>
-                  )}
-                  {selectedCoach.birthplace && (
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.5rem',
-                      fontSize: '0.85rem'
-                    }}>
-                      <span style={{ color: '#8892b0' }}>📍</span>
-                      <span style={{ color: '#ccd6f6' }}>{selectedCoach.birthplace}</span>
-                    </div>
-                  )}
-                  {selectedCoach.alma_mater && (
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.5rem',
-                      fontSize: '0.85rem'
-                    }}>
-                      <span style={{ color: '#8892b0' }}>🎓</span>
-                      <span style={{ color: '#ccd6f6' }}>
-                        {Array.isArray(selectedCoach.alma_mater) 
-                          ? selectedCoach.alma_mater.join(', ') 
-                          : selectedCoach.alma_mater}
-                      </span>
-                    </div>
-                  )}
-                </div>
+              {(() => {
+                const salaryInfo = getSalaryInfo(selectedCoach, statsData);
+                const hasBioDetails = selectedCoach.birthdate || selectedCoach.birthplace || selectedCoach.alma_mater || salaryInfo;
+                
+                return hasBioDetails ? (
+                  <div style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: '1rem',
+                    marginTop: '0.5rem',
+                    paddingTop: '0.75rem',
+                    borderTop: '1px solid rgba(255,255,255,0.1)'
+                  }}>
+                    {selectedCoach.birthdate && (
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.5rem',
+                        fontSize: '0.85rem'
+                      }}>
+                        <span style={{ color: '#8892b0' }}>🎂</span>
+                        <span style={{ color: '#ccd6f6' }}>{formatBirthdate(selectedCoach.birthdate)} (Age {calculateAge(selectedCoach.birthdate)})</span>
+                      </div>
+                    )}
+                    {selectedCoach.birthplace && (
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.5rem',
+                        fontSize: '0.85rem'
+                      }}>
+                        <span style={{ color: '#8892b0' }}>📍</span>
+                        <span style={{ color: '#ccd6f6' }}>{selectedCoach.birthplace}</span>
+                      </div>
+                    )}
+                    {selectedCoach.alma_mater && (
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.5rem',
+                        fontSize: '0.85rem'
+                      }}>
+                        <span style={{ color: '#8892b0' }}>🎓</span>
+                        <span style={{ color: '#ccd6f6' }}>
+                          {Array.isArray(selectedCoach.alma_mater) 
+                            ? selectedCoach.alma_mater.join(', ') 
+                            : selectedCoach.alma_mater}
+                        </span>
+                      </div>
+                    )}
+                    {salaryInfo && (
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.5rem',
+                        fontSize: '0.85rem'
+                      }}>
+                        <span style={{ color: '#8892b0' }}>💰</span>
+                        <span style={{ color: '#4ade80' }}>
+                          2024: {salaryInfo.formatted}
+                          {!salaryInfo.sameSchool && (
+                            <span style={{ color: '#8892b0', marginLeft: '0.25rem' }}>
+                              ({salaryInfo.school})
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                ) : null;
+              })()}
+            </div>
+            
+            {/* Modal Tabs */}
+            <div style={{
+              display: 'flex',
+              gap: '0.5rem',
+              padding: '0 2rem',
+              borderBottom: '1px solid rgba(255,255,255,0.1)'
+            }}>
+              <button
+                onClick={() => setModalTab('career')}
+                style={{
+                  padding: '0.75rem 1.5rem',
+                  background: 'transparent',
+                  border: 'none',
+                  borderBottom: modalTab === 'career' ? '2px solid #ff6b35' : '2px solid transparent',
+                  color: modalTab === 'career' ? '#ff6b35' : '#8892b0',
+                  cursor: 'pointer',
+                  fontSize: '0.85rem',
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                  transition: 'all 0.2s ease'
+                }}
+              >
+                📋 Career
+              </button>
+              <button
+                onClick={() => setModalTab('tree')}
+                style={{
+                  padding: '0.75rem 1.5rem',
+                  background: 'transparent',
+                  border: 'none',
+                  borderBottom: modalTab === 'tree' ? '2px solid #4ade80' : '2px solid transparent',
+                  color: modalTab === 'tree' ? '#4ade80' : '#8892b0',
+                  cursor: 'pointer',
+                  fontSize: '0.85rem',
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                  transition: 'all 0.2s ease'
+                }}
+              >
+                🌳 Tree
+              </button>
+              {hasCoordinatorExperience(selectedCoach) && (
+                <button
+                  onClick={() => setModalTab('stats')}
+                  style={{
+                    padding: '0.75rem 1.5rem',
+                    background: 'transparent',
+                    border: 'none',
+                    borderBottom: modalTab === 'stats' ? '2px solid #60a5fa' : '2px solid transparent',
+                    color: modalTab === 'stats' ? '#60a5fa' : '#8892b0',
+                    cursor: 'pointer',
+                    fontSize: '0.85rem',
+                    fontWeight: 600,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                    transition: 'all 0.2s ease'
+                  }}
+                >
+                  📊 Stats
+                </button>
               )}
             </div>
             
             {/* Modal Content */}
             <div style={{ padding: '2rem' }}>
-              {/* Coaching History */}
-              <div style={{ marginBottom: '2.5rem' }}>
-                <h3 style={{
-                  fontSize: '1.1rem',
-                  fontWeight: 700,
-                  color: '#ff6b35',
-                  marginBottom: '1rem',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.1em'
-                }}>
-                  📋 Coaching History
-                </h3>
-                <div style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '0.5rem'
-                }}>
-                  {selectedCoach.coaching_career?.map((job, idx) => (
-                    <div
-                      key={idx}
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns: '100px 1fr',
-                        gap: '1rem',
-                        padding: '0.75rem 1rem',
-                        background: job.position?.toLowerCase().startsWith('head coach') 
-                          ? 'rgba(255,107,53,0.15)' 
-                          : 'rgba(255,255,255,0.03)',
-                        borderRadius: '8px',
-                        borderLeft: job.position?.toLowerCase().startsWith('head coach')
-                          ? '3px solid #ff6b35'
-                          : '3px solid transparent'
-                      }}
-                    >
-                      <div style={{
-                        color: '#8892b0',
-                        fontSize: '0.85rem',
-                        fontWeight: 600
-                      }}>
-                        {formatYearRange(job.years.start, job.years.end, job.raw_years)}
-                      </div>
-                      <div>
-                        <div style={{ color: '#fff', fontWeight: 600 }}>
-                          {job.school}
+              {/* Career Tab */}
+              {modalTab === 'career' && (
+                <div style={{ marginBottom: '2.5rem' }}>
+                  <h3 style={{
+                    fontSize: '1.1rem',
+                    fontWeight: 700,
+                    color: '#ff6b35',
+                    marginBottom: '1rem',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.1em'
+                  }}>
+                    📋 Coaching History
+                  </h3>
+                  <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.5rem'
+                  }}>
+                    {selectedCoach.coaching_career?.map((job, idx) => (
+                      <div
+                        key={idx}
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: '100px 1fr',
+                          gap: '1rem',
+                          padding: '0.75rem 1rem',
+                          background: job.position?.toLowerCase().startsWith('head coach') 
+                            ? 'rgba(255,107,53,0.15)' 
+                            : 'rgba(255,255,255,0.03)',
+                          borderRadius: '8px',
+                          borderLeft: job.position?.toLowerCase().startsWith('head coach')
+                            ? '3px solid #ff6b35'
+                            : '3px solid transparent'
+                        }}
+                      >
+                        <div style={{
+                          color: '#8892b0',
+                          fontSize: '0.85rem',
+                          fontWeight: 600
+                        }}>
+                          {formatYearRange(job.years.start, job.years.end, job.raw_years)}
                         </div>
-                        <div style={{ color: '#8892b0', fontSize: '0.85rem' }}>
-                          {job.position}
+                        <div>
+                          <div style={{ color: '#fff', fontWeight: 600 }}>
+                            {job.school}
+                          </div>
+                          <div style={{ color: '#8892b0', fontSize: '0.85rem' }}>
+                            {job.position}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
               
-              {/* Coaching Tree */}
-              {coachingTree && (
+              {/* Tree Tab */}
+              {modalTab === 'tree' && coachingTree && (
                 <>
                   {/* Worked Under */}
                   {coachingTree.workedUnder.length > 0 && (
@@ -2488,6 +2892,335 @@ export default function CoachingHotboard() {
                     </div>
                   )}
                 </>
+              )}
+              
+              {modalTab === 'tree' && !coachingTree && (
+                <div style={{
+                  textAlign: 'center',
+                  padding: '2rem',
+                  color: '#8892b0'
+                }}>
+                  Loading coaching tree...
+                </div>
+              )}
+              
+              {/* Stats Tab */}
+              {modalTab === 'stats' && (
+                <div>
+                  <h3 style={{
+                    fontSize: '1.1rem',
+                    fontWeight: 700,
+                    color: '#60a5fa',
+                    marginBottom: '1rem',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.1em'
+                  }}>
+                    📊 Performance Stats
+                  </h3>
+                  <p style={{ color: '#8892b0', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
+                    Team performance stats during HC/OC/DC tenures. Showing national rank and value.
+                  </p>
+                  
+                  {(() => {
+                    const statsYears = getCoachStatsYears(selectedCoach, statsData);
+                    
+                    if (statsYears.length === 0) {
+                      return (
+                        <div style={{
+                          textAlign: 'center',
+                          padding: '2rem',
+                          color: '#8892b0'
+                        }}>
+                          No stats available for this coach's coordinator/HC roles (2011-2025).
+                        </div>
+                      );
+                    }
+                    
+                    // Helper to format stat with rank
+                    const formatStat = (statObj, decimals = 1, isPercent = false) => {
+                      if (!statObj || statObj.value === undefined) return { rank: '—', value: '—' };
+                      const val = isPercent 
+                        ? (statObj.value * 100).toFixed(decimals) + '%'
+                        : statObj.value.toFixed(decimals);
+                      return { rank: `#${statObj.rank}`, value: val };
+                    };
+                    
+                    // Get color based on rank
+                    const getRankColor = (rank, total = 134) => {
+                      if (rank === null || rank === undefined || rank === '—') return '#555';
+                      // Handle both numeric ranks and string ranks with #
+                      const r = typeof rank === 'number' ? rank : parseInt(String(rank).replace('#', ''));
+                      if (isNaN(r)) return '#555';
+                      const pct = r / total;
+                      if (pct <= 0.25) return '#4ade80'; // Top 25% - green
+                      if (pct <= 0.5) return '#a3e635';  // Top 50% - lime
+                      if (pct <= 0.75) return '#fbbf24'; // Top 75% - amber
+                      return '#f87171'; // Bottom 25% - red
+                    };
+                    
+                    // Determine if showing offense, defense, or both
+                    const showOffense = statsYears.some(s => s.advancedOffense || s.offensePPG);
+                    const showDefense = statsYears.some(s => s.advancedDefense || s.defensePPG);
+                    
+                    // Define columns based on what data we have
+                    const offenseColumns = [
+                      { key: 'AdjEPAPlay', label: 'Adj EPA/Play', decimals: 2 },
+                      { key: 'EPAPlay', label: 'EPA/Play', decimals: 2 },
+                      { key: 'YardsPlay', label: 'Yds/Play', decimals: 2 },
+                      { key: 'SRPct', label: 'SR%', decimals: 1, isPercent: true },
+                      { key: 'EPADB', label: 'EPA/DB', decimals: 2 },
+                      { key: 'YardsDB', label: 'Yds/DB', decimals: 2 },
+                      { key: 'PassSRPct', label: 'Pass SR%', decimals: 1, isPercent: true },
+                      { key: 'EPARush', label: 'EPA/Rush', decimals: 2 },
+                      { key: 'YardsRush', label: 'Yds/Rush', decimals: 2 },
+                      { key: 'RushSRPct', label: 'Rush SR%', decimals: 1, isPercent: true },
+                      { key: 'HavocPct', label: 'Havoc%', decimals: 1, isPercent: true },
+                    ];
+                    
+                    const defenseColumns = [
+                      { key: 'AdjEPAPlay', label: 'Adj EPA/Play', decimals: 2 },
+                      { key: 'EPAPlay', label: 'EPA/Play', decimals: 2 },
+                      { key: 'YardsPlay', label: 'Yds/Play', decimals: 2 },
+                      { key: 'SRPct', label: 'SR%', decimals: 1, isPercent: true },
+                      { key: 'EPADB', label: 'EPA/DB', decimals: 2 },
+                      { key: 'YardsDB', label: 'Yds/DB', decimals: 2 },
+                      { key: 'PassSRPct', label: 'Pass SR%', decimals: 1, isPercent: true },
+                      { key: 'EPARush', label: 'EPA/Rush', decimals: 2 },
+                      { key: 'YardsRush', label: 'Yds/Rush', decimals: 2 },
+                      { key: 'RushSRPct', label: 'Rush SR%', decimals: 1, isPercent: true },
+                      { key: 'HavocPct', label: 'Havoc%', decimals: 1, isPercent: true },
+                    ];
+                    
+                    const activeColumns = showOffense && !showDefense ? offenseColumns : 
+                                         showDefense && !showOffense ? defenseColumns :
+                                         offenseColumns; // For HC, show offensive by default
+                    
+                    // Define basic stats columns
+                    const basicOffenseColumns = [
+                      { key: 'ppg', label: 'PPG', decimals: 1 },
+                      { key: 'ypg', label: 'YPG', decimals: 1 },
+                      { key: 'rushYpg', label: 'Rush YPG', decimals: 1 },
+                      { key: 'passYpg', label: 'Pass YPG', decimals: 1 },
+                      { key: 'ypa', label: 'Yds/Att', decimals: 2 },
+                      { key: 'sacked', label: 'Sacked/G', decimals: 2 },
+                    ];
+                    
+                    const basicDefenseColumns = [
+                      { key: 'ppg', label: 'PPG Allowed', decimals: 1 },
+                      { key: 'ypg', label: 'YPG Allowed', decimals: 1 },
+                      { key: 'rushYpg', label: 'Rush YPG', decimals: 1 },
+                      { key: 'passYpg', label: 'Pass YPG', decimals: 1 },
+                      { key: 'sacks', label: 'Sacks/G', decimals: 2 },
+                      { key: 'takeaways', label: 'TO/G', decimals: 2 },
+                    ];
+                    
+                    return (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                        {/* Basic Stats Table */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                          <h4 style={{ color: '#8892b0', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>
+                            {showOffense && !showDefense ? 'Offensive Stats (2011-2025)' :
+                             showDefense && !showOffense ? 'Defensive Stats (2011-2025)' :
+                             'Team Stats (2011-2025)'}
+                          </h4>
+                          
+                          {/* Tabs for HC to switch between offense/defense */}
+                          {showOffense && showDefense && (
+                            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                              <button
+                                onClick={() => setAdvancedStatsView('offense')}
+                                style={{
+                                  padding: '0.4rem 0.8rem',
+                                  background: advancedStatsView === 'offense' ? 'rgba(74,222,128,0.2)' : 'transparent',
+                                  border: '1px solid #4ade80',
+                                  borderRadius: '4px',
+                                  color: '#4ade80',
+                                  fontSize: '0.75rem',
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                Offense
+                              </button>
+                              <button
+                                onClick={() => setAdvancedStatsView('defense')}
+                                style={{
+                                  padding: '0.4rem 0.8rem',
+                                  background: advancedStatsView === 'defense' ? 'rgba(96,165,250,0.2)' : 'transparent',
+                                  border: '1px solid #60a5fa',
+                                  borderRadius: '4px',
+                                  color: '#60a5fa',
+                                  fontSize: '0.75rem',
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                Defense
+                              </button>
+                            </div>
+                          )}
+                          
+                          <div style={{ overflowX: 'auto', borderRadius: '8px' }}>
+                            <table style={{ 
+                              width: '100%', 
+                              borderCollapse: 'collapse',
+                              fontSize: '0.75rem',
+                              minWidth: '700px'
+                            }}>
+                              <thead>
+                                <tr style={{ background: 'rgba(96,165,250,0.15)' }}>
+                                  <th style={{ padding: '0.6rem 0.5rem', textAlign: 'left', color: '#8892b0', fontWeight: 600, position: 'sticky', left: 0, background: '#1a1f35', zIndex: 1 }}>Year</th>
+                                  <th style={{ padding: '0.6rem 0.5rem', textAlign: 'left', color: '#8892b0', fontWeight: 600, position: 'sticky', left: '50px', background: '#1a1f35', zIndex: 1 }}>School</th>
+                                  {((showOffense && !showDefense) ? basicOffenseColumns :
+                                    (showDefense && !showOffense) ? basicDefenseColumns :
+                                    advancedStatsView === 'defense' ? basicDefenseColumns : basicOffenseColumns
+                                  ).map(col => (
+                                    <th key={col.key} style={{ padding: '0.6rem 0.5rem', textAlign: 'center', color: '#8892b0', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                                      {col.label}
+                                    </th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {statsYears
+                                  .filter(s => {
+                                    if (showOffense && !showDefense) return s.offense;
+                                    if (showDefense && !showOffense) return s.defense;
+                                    return advancedStatsView === 'defense' ? s.defense : s.offense;
+                                  })
+                                  .map((stat, idx) => {
+                                    const basicStats = (showOffense && !showDefense) ? stat.offense :
+                                                      (showDefense && !showOffense) ? stat.defense :
+                                                      advancedStatsView === 'defense' ? stat.defense : stat.offense;
+                                    const columns = (showOffense && !showDefense) ? basicOffenseColumns :
+                                                   (showDefense && !showOffense) ? basicDefenseColumns :
+                                                   advancedStatsView === 'defense' ? basicDefenseColumns : basicOffenseColumns;
+                                    
+                                    if (!basicStats) return null;
+                                    
+                                    return (
+                                      <tr 
+                                        key={idx}
+                                        style={{ 
+                                          background: idx % 2 === 0 ? 'rgba(255,255,255,0.02)' : 'transparent',
+                                          borderLeft: `2px solid ${stat.positionType === 'hc' ? '#ff6b35' : stat.positionType === 'oc' ? '#4ade80' : '#60a5fa'}`
+                                        }}
+                                      >
+                                        <td style={{ padding: '0.5rem', color: '#fff', fontWeight: 600, fontFamily: 'monospace', position: 'sticky', left: 0, background: idx % 2 === 0 ? '#1e2340' : '#1a1f35', zIndex: 1 }}>
+                                          {stat.year}
+                                        </td>
+                                        <td style={{ padding: '0.5rem', color: '#ccd6f6', position: 'sticky', left: '50px', background: idx % 2 === 0 ? '#1e2340' : '#1a1f35', zIndex: 1, maxWidth: '100px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                          {stat.team}
+                                        </td>
+                                        {columns.map(col => {
+                                          const statData = basicStats[col.key];
+                                          if (!statData) return <td key={col.key} style={{ padding: '0.5rem', textAlign: 'center', color: '#555' }}>—</td>;
+                                          
+                                          return (
+                                            <td key={col.key} style={{ padding: '0.5rem', textAlign: 'center', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
+                                              <span style={{ color: getRankColor(statData.rank) }}>#{statData.rank}</span>
+                                              <span style={{ color: '#8892b0', fontSize: '0.7rem' }}> ({statData.value.toFixed(col.decimals)})</span>
+                                            </td>
+                                          );
+                                        })}
+                                      </tr>
+                                    );
+                                  })}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                        
+                        {/* Advanced Stats Table */}
+                        {statsYears.some(s => s.advancedOffense || s.advancedDefense) && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                            <h4 style={{ color: '#8892b0', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>
+                              {showOffense && !showDefense ? 'Advanced Offensive Stats (2014+)' :
+                               showDefense && !showOffense ? 'Advanced Defensive Stats (2014+)' :
+                               advancedStatsView === 'defense' ? 'Advanced Defensive Stats (2014+)' : 'Advanced Offensive Stats (2014+)'}
+                            </h4>
+                            
+                            <div style={{ overflowX: 'auto', borderRadius: '8px' }}>
+                              <table style={{ 
+                                width: '100%', 
+                                borderCollapse: 'collapse',
+                                fontSize: '0.75rem',
+                                minWidth: '900px'
+                              }}>
+                                <thead>
+                                  <tr style={{ background: 'rgba(96,165,250,0.15)' }}>
+                                    <th style={{ padding: '0.6rem 0.5rem', textAlign: 'left', color: '#8892b0', fontWeight: 600, position: 'sticky', left: 0, background: '#1a1f35', zIndex: 1 }}>Year</th>
+                                    <th style={{ padding: '0.6rem 0.5rem', textAlign: 'left', color: '#8892b0', fontWeight: 600, position: 'sticky', left: '50px', background: '#1a1f35', zIndex: 1 }}>School</th>
+                                    {activeColumns.map(col => (
+                                      <th key={col.key} style={{ padding: '0.6rem 0.5rem', textAlign: 'center', color: '#8892b0', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                                        {col.label}
+                                      </th>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {statsYears
+                                    .filter(s => {
+                                      // Filter based on selected view and available data
+                                      if (showOffense && !showDefense) {
+                                        // OC only - show rows with offensive data
+                                        return s.advancedOffense;
+                                      } else if (showDefense && !showOffense) {
+                                        // DC only - show rows with defensive data
+                                        return s.advancedDefense;
+                                      } else {
+                                        // HC (has both) - filter based on toggle
+                                        if (advancedStatsView === 'defense') {
+                                          return s.advancedDefense;
+                                        } else {
+                                          return s.advancedOffense;
+                                        }
+                                      }
+                                    })
+                                    .map((stat, idx) => {
+                                    // Get the appropriate stats based on view
+                                    const advStats = (showOffense && !showDefense) ? stat.advancedOffense :
+                                                    (showDefense && !showOffense) ? stat.advancedDefense :
+                                                    (advancedStatsView === 'defense') ? stat.advancedDefense : stat.advancedOffense;
+                                    
+                                    if (!advStats) return null;
+                                    
+                                    return (
+                                      <tr 
+                                        key={idx}
+                                        style={{ 
+                                          background: idx % 2 === 0 ? 'rgba(255,255,255,0.02)' : 'transparent',
+                                          borderLeft: `2px solid ${stat.positionType === 'hc' ? '#ff6b35' : stat.positionType === 'oc' ? '#4ade80' : '#60a5fa'}`
+                                        }}
+                                      >
+                                        <td style={{ padding: '0.5rem', color: '#fff', fontWeight: 600, fontFamily: 'monospace', position: 'sticky', left: 0, background: idx % 2 === 0 ? '#1e2340' : '#1a1f35', zIndex: 1 }}>
+                                          {stat.year}
+                                        </td>
+                                        <td style={{ padding: '0.5rem', color: '#ccd6f6', position: 'sticky', left: '50px', background: idx % 2 === 0 ? '#1e2340' : '#1a1f35', zIndex: 1, maxWidth: '100px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                          {stat.team}
+                                        </td>
+                                        {activeColumns.map(col => {
+                                          const statData = advStats[col.key];
+                                          if (!statData) return <td key={col.key} style={{ padding: '0.5rem', textAlign: 'center', color: '#555' }}>—</td>;
+                                          
+                                          const { rank, value } = formatStat(statData, col.decimals, col.isPercent);
+                                          return (
+                                            <td key={col.key} style={{ padding: '0.5rem', textAlign: 'center', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
+                                              <span style={{ color: getRankColor(rank) }}>{rank}</span>
+                                              <span style={{ color: '#8892b0', fontSize: '0.7rem' }}> ({value})</span>
+                                            </td>
+                                          );
+                                        })}
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
               )}
             </div>
           </div>
