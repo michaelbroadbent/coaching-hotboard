@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import ByStatsTable from './ByStatsTable';
 
 // Normalize school names for matching - keep it simple, just lowercase and trim
 const normalizeSchool = (name) => {
@@ -1161,23 +1162,43 @@ export default function CoachingHotboard() {
             >
               👤 By Coach
             </button>
+            <button
+              onClick={() => handleSearchModeChange('stats')}
+              style={{
+                padding: '0.5rem 1rem',
+                background: searchMode === 'stats' ? 'rgba(167,139,250,0.3)' : 'rgba(255,255,255,0.05)',
+                border: searchMode === 'stats' ? '1px solid rgba(167,139,250,0.5)' : '1px solid rgba(255,255,255,0.1)',
+                borderRadius: '6px',
+                color: searchMode === 'stats' ? '#a78bfa' : '#8892b0',
+                cursor: 'pointer',
+                fontSize: '0.75rem',
+                fontWeight: 600,
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              📊 By Stats
+            </button>
           </div>
           
-          <label style={{
-            display: 'block',
-            marginBottom: '0.5rem',
-            color: '#8892b0',
-            fontSize: '0.75rem',
-            letterSpacing: '0.15em',
-            textTransform: 'uppercase'
-          }}>
-            {searchMode === 'school' ? 'Select a School' : searchMode === 'almaMater' ? 'Select an Alma Mater' : 'Search for a Coach'}
-          </label>
-          <div style={{ position: 'relative' }}>
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+          {searchMode !== 'stats' && (
+            <>
+              <label style={{
+                display: 'block',
+                marginBottom: '0.5rem',
+                color: '#8892b0',
+                fontSize: '0.75rem',
+                letterSpacing: '0.15em',
+                textTransform: 'uppercase'
+              }}>
+                {searchMode === 'school' ? 'Select a School' : searchMode === 'almaMater' ? 'Select an Alma Mater' : 'Search for a Coach'}
+              </label>
+              <div style={{ position: 'relative' }}>
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
               placeholder={searchMode === 'school' ? "Type to search schools..." : searchMode === 'almaMater' ? "Type to search alma maters..." : "Type coach name, team, or position..."}
               style={{
                 width: '100%',
@@ -1303,6 +1324,8 @@ export default function CoachingHotboard() {
               </div>
             )}
           </div>
+            </>
+          )}
         </div>
         
         {/* View Toggle - only show for school search */}
@@ -1665,6 +1688,20 @@ export default function CoachingHotboard() {
               )}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* By Stats View */}
+      {searchMode === 'stats' && (
+        <div style={{
+          maxWidth: '1400px',
+          margin: '0 auto 2rem'
+        }}>
+          <ByStatsTable 
+            coachesData={coachesData}
+            statsData={statsData}
+            onCoachClick={handleCoachClick}
+          />
         </div>
       )}
 
