@@ -1,11 +1,19 @@
 import React, { useState, useMemo } from 'react';
+import { TeamWithLogo, TeamLogo } from './teamLogos';
 
 // Reuse your existing getPositionType function
 const getPositionType = (position) => {
   if (!position) return null;
   const pos = position.toLowerCase();
   
-  if (pos.includes('head coach') && !pos.includes('assistant head coach')) {
+  const isHC = pos === 'head coach' || 
+               pos.startsWith('head coach/') || 
+               pos.startsWith('head coach,') ||
+               pos.startsWith('head coach &') ||
+               pos === 'head coach/general manager' ||
+               (pos.includes('interim head coach') && !pos.includes('assistant')) ||
+               (pos.includes('head football coach'));
+  if (isHC) {
     return 'hc';
   }
   
@@ -586,6 +594,7 @@ export default function ByStatsTable({ coachesData = [], statsData = null, onCoa
                       <span style={{ marginRight: '0.5rem', transition: 'transform 0.2s ease', display: 'inline-block', transform: isExpanded ? 'rotate(90deg)' : 'rotate(0)' }}>
                         ▶
                       </span>
+                      <TeamLogo team={row.team} size={20} style={{ marginRight: '0.4rem' }} />
                       {row.team}
                     </td>
                     {columns.map(col => {

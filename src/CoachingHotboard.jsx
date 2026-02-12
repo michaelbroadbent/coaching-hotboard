@@ -1,5 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import ByStatsTable from './ByStatsTable';
+import StaffHistory from './StaffHistory';
+import { TeamWithLogo, TeamLogo, getTeamLogoUrl } from './teamLogos';
 
 // Normalize school names for matching - keep it simple, just lowercase and trim
 const normalizeSchool = (name) => {
@@ -287,8 +289,16 @@ const getPositionType = (position) => {
   if (!position) return null;
   const pos = position.toLowerCase();
   
-  // Check for Head Coach first
-  if (pos.includes('head coach') && !pos.includes('assistant head coach')) {
+  // Check for Head Coach first (whitelist approach to avoid false positives like 
+  // "assistant to the head coach", "associate head coach", etc.)
+  const isHC = pos === 'head coach' || 
+               pos.startsWith('head coach/') || 
+               pos.startsWith('head coach,') ||
+               pos.startsWith('head coach &') ||
+               pos === 'head coach/general manager' ||
+               (pos.includes('interim head coach') && !pos.includes('assistant')) ||
+               (pos.includes('head football coach'));
+  if (isHC) {
     return 'hc';
   }
   
@@ -1180,9 +1190,27 @@ export default function CoachingHotboard() {
             >
               📊 By Stats
             </button>
+            <button
+              onClick={() => handleSearchModeChange('staffHistory')}
+              style={{
+                padding: '0.5rem 1rem',
+                background: searchMode === 'staffHistory' ? 'rgba(251,191,36,0.3)' : 'rgba(255,255,255,0.05)',
+                border: searchMode === 'staffHistory' ? '1px solid rgba(251,191,36,0.5)' : '1px solid rgba(255,255,255,0.1)',
+                borderRadius: '6px',
+                color: searchMode === 'staffHistory' ? '#fbbf24' : '#8892b0',
+                cursor: 'pointer',
+                fontSize: '0.75rem',
+                fontWeight: 600,
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              📋 Staff History
+            </button>
           </div>
           
-          {searchMode !== 'stats' && (
+          {searchMode !== 'stats' && searchMode !== 'staffHistory' &&  (
             <>
               <label style={{
                 display: 'block',
@@ -1245,7 +1273,7 @@ export default function CoachingHotboard() {
                     onMouseEnter={(e) => e.target.style.background = 'rgba(255,107,53,0.1)'}
                     onMouseLeave={(e) => e.target.style.background = 'transparent'}
                   >
-                    {school}
+                    <TeamWithLogo team={school} size={20} />
                   </div>
                 ))}
               </div>
@@ -1280,7 +1308,7 @@ export default function CoachingHotboard() {
                     onMouseEnter={(e) => e.target.style.background = 'rgba(96,165,250,0.1)'}
                     onMouseLeave={(e) => e.target.style.background = 'transparent'}
                   >
-                    {almaMater}
+                    <TeamWithLogo team={almaMater} size={20} />
                   </div>
                 ))}
               </div>
@@ -1316,8 +1344,8 @@ export default function CoachingHotboard() {
                     onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                   >
                     <div style={{ fontWeight: 600, color: '#fff' }}>{coach.name}</div>
-                    <div style={{ fontSize: '0.8rem', color: '#8892b0' }}>
-                      {coach.currentPosition} @ {coach.currentTeam}
+                    <div style={{ fontSize: '0.8rem', color: '#8892b0', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                      {coach.currentPosition} @ <TeamWithLogo team={coach.currentTeam} size={16} nameStyle={{ color: '#8892b0' }} />
                     </div>
                   </div>
                 ))}
@@ -1444,8 +1472,8 @@ export default function CoachingHotboard() {
                   <div style={{ fontWeight: 700, color: '#fff', fontSize: '1.1rem', marginBottom: '0.25rem' }}>
                     {coach.name}
                   </div>
-                  <div style={{ color: '#60a5fa', fontSize: '0.9rem', marginBottom: '0.5rem' }}>
-                    {coach.currentPosition} @ {coach.currentTeam}
+                  <div style={{ color: '#60a5fa', fontSize: '0.9rem', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                    {coach.currentPosition} @ <TeamWithLogo team={coach.currentTeam} size={18} nameStyle={{ color: '#60a5fa' }} />
                   </div>
                   {coach.birthdate && (
                     <div style={{ color: '#8892b0', fontSize: '0.8rem' }}>
@@ -1547,8 +1575,8 @@ export default function CoachingHotboard() {
                     </span>
                   )}
                 </h2>
-                <div style={{ color: '#4ade80', fontSize: '1.1rem' }}>
-                  {searchedCoach.currentPosition} @ {searchedCoach.currentTeam}
+                <div style={{ color: '#4ade80', fontSize: '1.1rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                  {searchedCoach.currentPosition} @ <TeamWithLogo team={searchedCoach.currentTeam} size={22} nameStyle={{ color: '#4ade80' }} />
                 </div>
               </div>
               <button
@@ -1617,8 +1645,8 @@ export default function CoachingHotboard() {
                       <span style={{ color: '#4ade80' }}>
                         {salaryInfo.formatted}
                         {!salaryInfo.sameSchool && (
-                          <span style={{ color: '#8892b0', marginLeft: '0.25rem' }}>
-                            ({salaryInfo.school})
+                          <span style={{ color: '#8892b0', marginLeft: '0.25rem', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+                            (<TeamLogo team={salaryInfo.school} size={14} />{salaryInfo.school})
                           </span>
                         )}
                       </span>
@@ -1670,7 +1698,7 @@ export default function CoachingHotboard() {
                       {formatYearRange(job.years?.start, job.years?.end, job.raw_years)}
                     </div>
                     <div>
-                      <span style={{ color: '#f7c59f', fontWeight: 500 }}>{job.school}</span>
+                      <span style={{ color: '#f7c59f', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}><TeamLogo team={job.school} size={16} />{job.school}</span>
                       <span style={{ color: '#8892b0' }}> — {job.position}</span>
                     </div>
                   </div>
@@ -1724,7 +1752,7 @@ export default function CoachingHotboard() {
             borderRadius: '100px',
             border: '1px solid rgba(255,107,53,0.4)'
           }}>
-            <span style={{ fontSize: '1.5rem' }}>🏈</span>
+            <span style={{ fontSize: '1.5rem' }}>{getTeamLogoUrl(selectedSchool) ? <TeamLogo team={selectedSchool} size={28} /> : '🏈'}</span>
             <span style={{ fontWeight: 700, color: '#f7c59f' }}>{selectedSchool}</span>
             <button
               onClick={() => setSelectedSchool('')}
@@ -1760,7 +1788,7 @@ export default function CoachingHotboard() {
                   borderRadius: '100px',
                   border: '1px solid rgba(96,165,250,0.4)'
                 }}>
-                  <span style={{ fontSize: '1.5rem' }}>🎯</span>
+                  <span style={{ fontSize: '1.5rem' }}>{getTeamLogoUrl(secondarySchool) ? <TeamLogo team={secondarySchool} size={28} /> : '🎯'}</span>
                   <span style={{ fontWeight: 700, color: '#60a5fa' }}>{secondarySchool}</span>
                   <button
                     onClick={() => {
@@ -1840,7 +1868,7 @@ export default function CoachingHotboard() {
                           onMouseEnter={(e) => e.target.style.background = 'rgba(96,165,250,0.1)'}
                           onMouseLeave={(e) => e.target.style.background = 'transparent'}
                         >
-                          {school}
+                          <TeamWithLogo team={school} size={16} />
                         </div>
                       ))}
                     </div>
@@ -2055,7 +2083,7 @@ export default function CoachingHotboard() {
                         letterSpacing: '0.1em',
                         marginBottom: '0.25rem'
                       }}>
-                        {selectedSchool} Staff
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}><TeamLogo team={selectedSchool} size={14} />{selectedSchool} Staff</span>
                       </div>
                       <div 
                         style={{
@@ -2169,7 +2197,7 @@ export default function CoachingHotboard() {
                         letterSpacing: '0.1em',
                         marginBottom: '0.25rem'
                       }}>
-                        Now @ {group.otherCoach.currentTeam}
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>Now @ <TeamWithLogo team={group.otherCoach.currentTeam} size={16} nameStyle={{ color: '#60a5fa', textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '0.7rem', fontWeight: 700 }} /></span>
                       </div>
                       <div style={{
                         fontSize: '1.1rem',
@@ -2275,8 +2303,8 @@ export default function CoachingHotboard() {
                         >
                           {group.coach.name}
                         </div>
-                        <div style={{ color: '#8892b0', fontSize: '0.85rem' }}>
-                          {group.coach.currentPosition} @ {group.coach.currentTeam}
+                        <div style={{ color: '#8892b0', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                          {group.coach.currentPosition} @ <TeamWithLogo team={group.coach.currentTeam} size={16} nameStyle={{ color: '#8892b0' }} />
                         </div>
                       </div>
                     </div>
@@ -2313,8 +2341,8 @@ export default function CoachingHotboard() {
                                 >
                                   {otherCoachGroup.otherCoach.name}
                                 </div>
-                                <div style={{ color: '#60a5fa', fontSize: '0.8rem' }}>
-                                  {otherCoachGroup.otherCoach.currentPosition} @ {otherCoachGroup.otherCoach.currentTeam}
+                                <div style={{ color: '#60a5fa', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                                  {otherCoachGroup.otherCoach.currentPosition} @ <TeamWithLogo team={otherCoachGroup.otherCoach.currentTeam} size={16} nameStyle={{ color: '#60a5fa' }} />
                                 </div>
                               </div>
                               {otherCoachGroup.overlaps.length > 1 && (
@@ -2375,7 +2403,7 @@ export default function CoachingHotboard() {
               fontWeight: 700,
               letterSpacing: '0.05em'
             }}>
-              🎯 Current {selectedSchool} Staff ({currentStaff.length})
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}><TeamLogo team={selectedSchool} size={22} /> Current {selectedSchool} Staff ({currentStaff.length})</span>
             </h2>
             <div style={{
               display: 'grid',
@@ -2438,6 +2466,17 @@ export default function CoachingHotboard() {
               })}
             </div>
           </div>
+        </div>
+      )}
+      {/* Staff History View */}
+      {searchMode === 'staffHistory' && (
+        <div style={{ maxWidth: '1200px', margin: '0 auto 2rem', padding: '0 1rem' }}>
+          <StaffHistory 
+            coachesData={coachesData}
+            onSelectCoach={(coach) => {
+              if (coach) setSelectedCoach(coach);
+            }}
+          />
         </div>
       )}
 
@@ -2557,8 +2596,8 @@ export default function CoachingHotboard() {
                   </span>
                 )}
               </h2>
-              <div style={{ color: '#f7c59f', fontSize: '1rem', marginBottom: '0.75rem' }}>
-                {selectedCoach.currentPosition} @ {selectedCoach.currentTeam}
+              <div style={{ color: '#f7c59f', fontSize: '1rem', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                {selectedCoach.currentPosition} @ <TeamWithLogo team={selectedCoach.currentTeam} size={22} nameStyle={{ color: '#f7c59f' }} />
               </div>
               
               {/* Bio Details */}
@@ -2623,8 +2662,8 @@ export default function CoachingHotboard() {
                         <span style={{ color: '#4ade80' }}>
                           2024: {salaryInfo.formatted}
                           {!salaryInfo.sameSchool && (
-                            <span style={{ color: '#8892b0', marginLeft: '0.25rem' }}>
-                              ({salaryInfo.school})
+                            <span style={{ color: '#8892b0', marginLeft: '0.25rem', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+                              (<TeamLogo team={salaryInfo.school} size={14} />{salaryInfo.school})
                             </span>
                           )}
                         </span>
@@ -2745,7 +2784,8 @@ export default function CoachingHotboard() {
                           {formatYearRange(job.years.start, job.years.end, job.raw_years)}
                         </div>
                         <div>
-                          <div style={{ color: '#fff', fontWeight: 600 }}>
+                          <div style={{ color: '#fff', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                            <TeamLogo team={job.school} size={18} />
                             {job.school}
                           </div>
                           <div style={{ color: '#8892b0', fontSize: '0.85rem' }}>
@@ -2803,8 +2843,8 @@ export default function CoachingHotboard() {
                             <div style={{ fontWeight: 700, color: '#fff', marginBottom: '0.25rem' }}>
                               {item.coach.name}
                             </div>
-                            <div style={{ fontSize: '0.8rem', color: '#4ade80', marginBottom: '0.5rem' }}>
-                              Now: {item.coach.currentPosition} @ {item.coach.currentTeam}
+                            <div style={{ fontSize: '0.8rem', color: '#4ade80', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.3rem', flexWrap: 'wrap' }}>
+                              Now: {item.coach.currentPosition} @ <TeamWithLogo team={item.coach.currentTeam} size={16} nameStyle={{ color: '#4ade80' }} />
                             </div>
                             <div style={{
                               display: 'flex',
@@ -2822,7 +2862,7 @@ export default function CoachingHotboard() {
                                     borderRadius: '4px'
                                   }}
                                 >
-                                  <span style={{ color: '#f7c59f' }}>{stint.school}</span>
+                                  <span style={{ color: '#f7c59f', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}><TeamLogo team={stint.school} size={14} />{stint.school}</span>
                                   {' '}({formatYearRange(stint.years.start, stint.years.end, stint.rawYears)})
                                   <br />
                                   <span style={{ opacity: 0.8 }}>My role: {stint.myPosition}</span>
@@ -2877,8 +2917,8 @@ export default function CoachingHotboard() {
                             <div style={{ fontWeight: 700, color: '#fff', marginBottom: '0.25rem' }}>
                               {item.coach.name}
                             </div>
-                            <div style={{ fontSize: '0.8rem', color: '#60a5fa', marginBottom: '0.5rem' }}>
-                              Now: {item.coach.currentPosition} @ {item.coach.currentTeam}
+                            <div style={{ fontSize: '0.8rem', color: '#60a5fa', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.3rem', flexWrap: 'wrap' }}>
+                              Now: {item.coach.currentPosition} @ <TeamWithLogo team={item.coach.currentTeam} size={16} nameStyle={{ color: '#60a5fa' }} />
                             </div>
                             <div style={{
                               display: 'flex',
@@ -2897,7 +2937,7 @@ export default function CoachingHotboard() {
                                     borderRadius: '4px'
                                   }}
                                 >
-                                  <span style={{ color: '#f7c59f' }}>{stint.school}</span>
+                                  <span style={{ color: '#f7c59f', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}><TeamLogo team={stint.school} size={14} />{stint.school}</span>
                                   {' '}({formatYearRange(stint.years.start, stint.years.end)})
                                   <br />
                                   <span style={{ opacity: 0.8 }}>Their role: {stint.position}</span>
@@ -2911,7 +2951,7 @@ export default function CoachingHotboard() {
                               background: 'rgba(74,222,128,0.1)',
                               borderRadius: '4px'
                             }}>
-                              → Became HC at {item.becameHC.school} ({formatYearRange(item.becameHC.years.start, item.becameHC.years.end, item.becameHC.rawYears)})
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>→ Became HC at <TeamWithLogo team={item.becameHC.school} size={14} nameStyle={{ color: '#4ade80' }} /> ({formatYearRange(item.becameHC.years.start, item.becameHC.years.end, item.becameHC.rawYears)})</span>
                             </div>
                           </div>
                         ))}
