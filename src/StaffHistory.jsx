@@ -155,7 +155,7 @@ export default function StaffHistory({ coachesData, onSelectCoach }) {
 
   // Filter schools based on search
   const filteredSchools = useMemo(() => {
-    if (!searchTerm) return allSchools.slice(0, 50);
+    if (!searchTerm) return [];
     const term = searchTerm.toLowerCase();
     return allSchools.filter(s => s.toLowerCase().includes(term)).slice(0, 50);
   }, [allSchools, searchTerm]);
@@ -345,7 +345,7 @@ export default function StaffHistory({ coachesData, onSelectCoach }) {
             onFocus={(e) => e.target.style.borderColor = 'rgba(251,191,36,0.6)'}
             onBlur={(e) => e.target.style.borderColor = 'rgba(251,191,36,0.2)'}
           />
-          {filteredSchools.length > 0 && (
+          {searchTerm && filteredSchools.length > 0 && (
             <div style={{
               position: 'absolute',
               top: '100%',

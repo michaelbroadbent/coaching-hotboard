@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import ByStatsTable from './ByStatsTable';
 import StaffHistory from './StaffHistory';
 import { TeamWithLogo, TeamLogo, getTeamLogoUrl } from './teamLogos';
+import SchoolRoster from './SchoolRoster';
 
 // Normalize school names for matching - keep it simple, just lowercase and trim
 const normalizeSchool = (name) => {
@@ -1061,17 +1062,29 @@ export default function CoachingHotboard() {
       background: 'linear-gradient(135deg, #0f0f23 0%, #1a1a2e 50%, #16213e 100%)',
       fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
       color: '#e0e0e0',
-      padding: '2rem'
+      padding: '1rem'
     }}>
+      {/* Responsive Styles */}
+      <style>{`
+        @media (min-width: 640px) {
+          .ch-root { padding: 2rem !important; }
+          .ch-header-title { font-size: 2.8rem !important; }
+          .ch-header-subtitle { font-size: 1rem !important; }
+          .ch-mode-grid { grid-template-columns: repeat(3, 1fr) !important; }
+        }
+        @media (min-width: 900px) {
+          .ch-mode-grid { grid-template-columns: repeat(6, 1fr) !important; }
+        }
+      `}</style>
       {/* Header */}
       <header style={{
         textAlign: 'center',
-        marginBottom: '3rem',
+        marginBottom: '2rem',
         position: 'relative'
       }}>
         <div style={{
           position: 'absolute',
-          top: '-20px',
+          top: '-10px',
           left: '50%',
           transform: 'translateX(-50%)',
           width: '200px',
@@ -1079,8 +1092,8 @@ export default function CoachingHotboard() {
           background: 'linear-gradient(90deg, transparent, #ff6b35, #f7c59f, #ff6b35, transparent)',
           borderRadius: '2px'
         }} />
-        <h1 style={{
-          fontSize: '2.8rem',
+        <h1 className="ch-header-title" style={{
+          fontSize: '1.6rem',
           fontWeight: 800,
           letterSpacing: '-0.02em',
           background: 'linear-gradient(135deg, #ff6b35 0%, #f7c59f 50%, #ff8c42 100%)',
@@ -1092,9 +1105,9 @@ export default function CoachingHotboard() {
         }}>
           Coaching Hotboard
         </h1>
-        <p style={{
+        <p className="ch-header-subtitle" style={{
           color: '#8892b0',
-          fontSize: '1rem',
+          fontSize: '0.7rem',
           letterSpacing: '0.1em',
           textTransform: 'uppercase'
         }}>
@@ -1106,111 +1119,109 @@ export default function CoachingHotboard() {
       <div style={{
         maxWidth: '900px',
         margin: '0 auto 2rem',
-        display: 'grid',
-        gridTemplateColumns: '1fr auto',
-        gap: '1rem',
-        alignItems: 'end'
+        padding: '0 1rem'
       }}>
-        <div>
-          {/* Search Mode Toggle */}
+        {/* Search Mode Toggle */}
+        <div className="ch-mode-grid" style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(2, 1fr)',
+          gap: '0.4rem',
+          marginBottom: '0.75rem'
+        }}>
+          {[
+            { id: 'school', label: 'By School', emoji: '🏈', color: '255,107,53', tooltip: 'Select a school to see coaching connections — find which coaches on the current staff have worked together before and where their careers have overlapped.' },
+            { id: 'almaMater', label: 'By Alma Mater', emoji: '🎓', color: '96,165,250', tooltip: 'Search by alma mater to find all current coaches in the database who played at a specific school as student-athletes.' },
+            { id: 'coach', label: 'By Coach', emoji: '👤', color: '74,222,128', tooltip: 'Look up any coach directly to view their full career history, current position, bio details, and stats at each stop.' },
+            { id: 'stats', label: 'By Stats', emoji: '📊', color: '167,139,250', tooltip: 'Browse team offensive and defensive stats with sortable rankings, and see which coordinators are responsible for each unit.' },
+            { id: 'staffHistory', label: 'Staff History', emoji: '📋', color: '251,191,36', tooltip: 'View the full year-by-year coaching staff breakdown for any school — see who was on staff each season and how the staff evolved.' },
+            { id: 'schoolHistory', label: 'School History', emoji: '🏫', color: '232,121,249', tooltip: 'Search for a school to see every coach in the database who has ever coached there, sorted by current staff first then most recent.' },
+          ].map(mode => (
+            <button
+              key={mode.id}
+              onClick={() => handleSearchModeChange(mode.id)}
+              title={mode.tooltip}
+              style={{
+                padding: '0.55rem 0.5rem',
+                background: searchMode === mode.id ? `rgba(${mode.color},0.3)` : 'rgba(255,255,255,0.05)',
+                border: searchMode === mode.id ? `1px solid rgba(${mode.color},0.5)` : '1px solid rgba(255,255,255,0.1)',
+                borderRadius: '6px',
+                color: searchMode === mode.id ? `rgb(${mode.color})` : '#8892b0',
+                cursor: 'pointer',
+                fontSize: '0.7rem',
+                fontWeight: 600,
+                textTransform: 'uppercase',
+                letterSpacing: '0.03em',
+                transition: 'all 0.2s ease',
+                whiteSpace: 'nowrap',
+                textAlign: 'center'
+              }}
+            >
+              {mode.emoji} {mode.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Section Description */}
+        <p style={{
+          color: '#8892b0',
+          fontSize: '0.8rem',
+          lineHeight: 1.6,
+          margin: '0 0 1rem 0',
+          padding: '0.6rem 0.8rem',
+          background: 'rgba(255,255,255,0.02)',
+          borderRadius: '6px',
+          borderLeft: (() => {
+            const colors = { school: '255,107,53', almaMater: '96,165,250', coach: '74,222,128', stats: '167,139,250', staffHistory: '251,191,36', schoolHistory: '232,121,249' };
+            return `3px solid rgba(${colors[searchMode] || '255,255,255'},0.4)`;
+          })()
+        }}>
+          {searchMode === 'school' && 'Select a school to discover coaching connections. See which coaches on the current staff have overlapping career histories — where they worked together, for how long, and what positions they held.'}
+          {searchMode === 'almaMater' && 'Find all current coaches in the database who played at a specific school as student-athletes. See where former players have gone on to coach and what positions they hold.'}
+          {searchMode === 'coach' && 'Look up any coach directly by name. View their full career history, current position, bio details, salary information, and statistical performance at each stop along the way.'}
+          {searchMode === 'stats' && 'Browse team offensive and defensive stats with sortable rankings. Click into any school to see which coordinators are responsible for each unit and how the numbers have trended over time.'}
+          {searchMode === 'staffHistory' && 'View the full year-by-year coaching staff breakdown for any school. See who was on staff each season, track arrivals and departures, and watch how the coaching staff evolved over time.'}
+          {searchMode === 'schoolHistory' && 'Search for any school to see every coach in the database who has ever coached there. Current staff appear first sorted by position hierarchy, followed by former coaches sorted by most recent tenure.'}
+        </p>
+
+        {/* View Toggle - only show for school search */}
+        {searchMode === 'school' && (
           <div style={{
             display: 'flex',
             gap: '0.5rem',
+            background: 'rgba(255,255,255,0.03)',
+            padding: '0.5rem',
+            borderRadius: '8px',
+            border: '1px solid rgba(255,107,53,0.2)',
             marginBottom: '0.75rem'
           }}>
-            <button
-              onClick={() => handleSearchModeChange('school')}
-              style={{
-                padding: '0.5rem 1rem',
-                background: searchMode === 'school' ? 'rgba(255,107,53,0.3)' : 'rgba(255,255,255,0.05)',
-                border: searchMode === 'school' ? '1px solid rgba(255,107,53,0.5)' : '1px solid rgba(255,255,255,0.1)',
-                borderRadius: '6px',
-                color: searchMode === 'school' ? '#ff6b35' : '#8892b0',
-                cursor: 'pointer',
-                fontSize: '0.75rem',
-                fontWeight: 600,
-                textTransform: 'uppercase',
-                letterSpacing: '0.05em',
-                transition: 'all 0.2s ease'
-              }}
-            >
-              🏈 By School
-            </button>
-            <button
-              onClick={() => handleSearchModeChange('almaMater')}
-              style={{
-                padding: '0.5rem 1rem',
-                background: searchMode === 'almaMater' ? 'rgba(96,165,250,0.3)' : 'rgba(255,255,255,0.05)',
-                border: searchMode === 'almaMater' ? '1px solid rgba(96,165,250,0.5)' : '1px solid rgba(255,255,255,0.1)',
-                borderRadius: '6px',
-                color: searchMode === 'almaMater' ? '#60a5fa' : '#8892b0',
-                cursor: 'pointer',
-                fontSize: '0.75rem',
-                fontWeight: 600,
-                textTransform: 'uppercase',
-                letterSpacing: '0.05em',
-                transition: 'all 0.2s ease'
-              }}
-            >
-              🎓 By Alma Mater
-            </button>
-            <button
-              onClick={() => handleSearchModeChange('coach')}
-              style={{
-                padding: '0.5rem 1rem',
-                background: searchMode === 'coach' ? 'rgba(74,222,128,0.3)' : 'rgba(255,255,255,0.05)',
-                border: searchMode === 'coach' ? '1px solid rgba(74,222,128,0.5)' : '1px solid rgba(255,255,255,0.1)',
-                borderRadius: '6px',
-                color: searchMode === 'coach' ? '#4ade80' : '#8892b0',
-                cursor: 'pointer',
-                fontSize: '0.75rem',
-                fontWeight: 600,
-                textTransform: 'uppercase',
-                letterSpacing: '0.05em',
-                transition: 'all 0.2s ease'
-              }}
-            >
-              👤 By Coach
-            </button>
-            <button
-              onClick={() => handleSearchModeChange('stats')}
-              style={{
-                padding: '0.5rem 1rem',
-                background: searchMode === 'stats' ? 'rgba(167,139,250,0.3)' : 'rgba(255,255,255,0.05)',
-                border: searchMode === 'stats' ? '1px solid rgba(167,139,250,0.5)' : '1px solid rgba(255,255,255,0.1)',
-                borderRadius: '6px',
-                color: searchMode === 'stats' ? '#a78bfa' : '#8892b0',
-                cursor: 'pointer',
-                fontSize: '0.75rem',
-                fontWeight: 600,
-                textTransform: 'uppercase',
-                letterSpacing: '0.05em',
-                transition: 'all 0.2s ease'
-              }}
-            >
-              📊 By Stats
-            </button>
-            <button
-              onClick={() => handleSearchModeChange('staffHistory')}
-              style={{
-                padding: '0.5rem 1rem',
-                background: searchMode === 'staffHistory' ? 'rgba(251,191,36,0.3)' : 'rgba(255,255,255,0.05)',
-                border: searchMode === 'staffHistory' ? '1px solid rgba(251,191,36,0.5)' : '1px solid rgba(255,255,255,0.1)',
-                borderRadius: '6px',
-                color: searchMode === 'staffHistory' ? '#fbbf24' : '#8892b0',
-                cursor: 'pointer',
-                fontSize: '0.75rem',
-                fontWeight: 600,
-                textTransform: 'uppercase',
-                letterSpacing: '0.05em',
-                transition: 'all 0.2s ease'
-              }}
-            >
-              📋 Staff History
-            </button>
+            {[{id: 'overlaps', label: 'All Connections'}, {id: 'timeline', label: 'By Coach'}].map(mode => (
+              <button
+                key={mode.id}
+                onClick={() => setViewMode(mode.id)}
+                style={{
+                  padding: '0.6rem 1rem',
+                  background: viewMode === mode.id ? 'rgba(255,107,53,0.3)' : 'transparent',
+                  border: 'none',
+                  borderRadius: '6px',
+                  color: viewMode === mode.id ? '#ff6b35' : '#8892b0',
+                  cursor: 'pointer',
+                  fontSize: '0.8rem',
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                  transition: 'all 0.2s ease',
+                  flex: 1,
+                  textAlign: 'center'
+                }}
+              >
+                {mode.label}
+              </button>
+            ))}
           </div>
-          
-          {searchMode !== 'stats' && searchMode !== 'staffHistory' &&  (
+        )}
+        
+        <div>
+          {searchMode !== 'stats' && searchMode !== 'staffHistory' && searchMode !== 'schoolHistory' && (
             <>
               <label style={{
                 display: 'block',
@@ -1355,40 +1366,6 @@ export default function CoachingHotboard() {
             </>
           )}
         </div>
-        
-        {/* View Toggle - only show for school search */}
-        {searchMode === 'school' && (
-          <div style={{
-            display: 'flex',
-            gap: '0.5rem',
-            background: 'rgba(255,255,255,0.03)',
-            padding: '0.5rem',
-            borderRadius: '8px',
-            border: '1px solid rgba(255,107,53,0.2)'
-          }}>
-            {[{id: 'overlaps', label: 'All Connections'}, {id: 'timeline', label: 'By Coach'}].map(mode => (
-              <button
-                key={mode.id}
-                onClick={() => setViewMode(mode.id)}
-                style={{
-                  padding: '0.75rem 1.25rem',
-                  background: viewMode === mode.id ? 'rgba(255,107,53,0.3)' : 'transparent',
-                  border: 'none',
-                  borderRadius: '6px',
-                  color: viewMode === mode.id ? '#ff6b35' : '#8892b0',
-                  cursor: 'pointer',
-                  fontSize: '0.85rem',
-                  fontWeight: 600,
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.05em',
-                  transition: 'all 0.2s ease'
-                }}
-              >
-                {mode.label}
-              </button>
-            ))}
-          </div>
-        )}
       </div>
 
       {/* Selected Alma Mater Badge & Results */}
@@ -2480,8 +2457,18 @@ export default function CoachingHotboard() {
         </div>
       )}
 
+      {/* School History Mode */}
+      {searchMode === 'schoolHistory' && (
+        <div style={{ maxWidth: '1000px', margin: '0 auto 2rem', padding: '0 1rem' }}>
+          <SchoolRoster
+            coachesData={coachesData}
+            onSelectCoach={(coach) => setSelectedCoach(coach)}
+          />
+        </div>
+      )}
+
       {/* Empty State */}
-      {!selectedSchool && !selectedAlmaMater && !searchedCoach && !calculating && (
+      {!selectedSchool && !selectedAlmaMater && !searchedCoach && !calculating && searchMode !== 'stats' && searchMode !== 'staffHistory' && searchMode !== 'schoolHistory' && (
         <div style={{
           textAlign: 'center',
           padding: '4rem 2rem',
@@ -2508,10 +2495,8 @@ export default function CoachingHotboard() {
             lineHeight: 1.6,
             marginBottom: '2rem'
           }}>
-            Search by <strong style={{ color: '#ff6b35' }}>school</strong> to discover coaching connections 
-            and see which coaches worked together. Search by <strong style={{ color: '#60a5fa' }}>alma mater</strong> to 
-            find coaches who played at a specific school. Or search by <strong style={{ color: '#4ade80' }}>coach</strong> to 
-            look up any coach directly.
+            Use the search bar above to get started. Select a mode to switch between different ways to explore 
+            the coaching database — from career overlaps and staff histories to stats and coaching trees.
           </p>
         </div>
       )}
