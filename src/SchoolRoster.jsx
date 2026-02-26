@@ -225,7 +225,6 @@ const TEAM_LOGOS = {
   "mcneese cowboys": "https://a.espncdn.com/i/teamlogos/ncaa/500/2377.png",
   "mercer bears": "https://a.espncdn.com/i/teamlogos/ncaa/500/2382.png",
   "mississippi valley state delta devils": "https://a.espncdn.com/i/teamlogos/ncaa/500/2400.png",
-  "missouri state bears": "https://a.espncdn.com/i/teamlogos/ncaa/500/2623.png",
   "monmouth hawks": "https://a.espncdn.com/i/teamlogos/ncaa/500/2405.png",
   "montana grizzlies": "https://a.espncdn.com/i/teamlogos/ncaa/500/149.png",
   "montana state bobcats": "https://a.espncdn.com/i/teamlogos/ncaa/500/147.png",

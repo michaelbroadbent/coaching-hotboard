@@ -271,7 +271,6 @@ const SCHOOL_CANONICAL_MAP = {
   "bemidji state": "Bemidji State",
   "bemidji state university": "Bemidji State",
   "central washington": "Central Washington",
-  "central washington university": "Central Washington",
   "concordia": "Concordia",
   "concordia university": "Concordia",
   "delta state": "Delta State",
@@ -338,7 +337,6 @@ const SCHOOL_CANONICAL_MAP = {
   "west texas a&m": "West Texas A&M",
   "west texas a&m university": "West Texas A&M",
   "western oregon": "Western Oregon",
-  "western oregon university": "Western Oregon",
   "winona state": "Winona State",
   "winona state university": "Winona State",
   
