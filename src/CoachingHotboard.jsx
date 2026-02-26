@@ -347,6 +347,12 @@ const SCHOOL_CANONICAL_MAP = {
   "united states air force academy": "Air Force",
 };
 
+// ═══════════════════════════════════════════════════════════════════════════
+// CACHING FOR PERFORMANCE
+// ═══════════════════════════════════════════════════════════════════════════
+const canonicalCache = new Map();
+const schoolMatchCache = new Map();
+
 // Normalize school names for matching - canonicalize known schools
 const normalizeSchool = (name) => {
   if (!name) return '';
@@ -354,16 +360,23 @@ const normalizeSchool = (name) => {
   return SCHOOL_CANONICAL_MAP[lower] || name;
 };
 
-// Get canonical name for display (used in dropdowns, lists)
+// Get canonical name for display (used in dropdowns, lists) - WITH CACHING
 const canonicalizeSchoolName = (name) => {
   if (!name) return name;
+  
+  // Check cache first
+  if (canonicalCache.has(name)) {
+    return canonicalCache.get(name);
+  }
   
   let normalized = name.trim();
   const lower = normalized.toLowerCase();
   
   // Check direct mapping first
   if (SCHOOL_CANONICAL_MAP[lower]) {
-    return SCHOOL_CANONICAL_MAP[lower];
+    const result = SCHOOL_CANONICAL_MAP[lower];
+    canonicalCache.set(name, result);
+    return result;
   }
   
   // Expand common abbreviations BEFORE other transformations
@@ -377,7 +390,9 @@ const canonicalizeSchoolName = (name) => {
   // Check mapping again after expansion
   const expandedLower = normalized.toLowerCase();
   if (SCHOOL_CANONICAL_MAP[expandedLower]) {
-    return SCHOOL_CANONICAL_MAP[expandedLower];
+    const result = SCHOOL_CANONICAL_MAP[expandedLower];
+    canonicalCache.set(name, result);
+    return result;
   }
   
   // Strip common suffixes if no direct mapping
@@ -395,9 +410,10 @@ const canonicalizeSchoolName = (name) => {
   // Final check after stripping
   const strippedLower = result.toLowerCase();
   if (SCHOOL_CANONICAL_MAP[strippedLower]) {
-    return SCHOOL_CANONICAL_MAP[strippedLower];
+    result = SCHOOL_CANONICAL_MAP[strippedLower];
   }
   
+  canonicalCache.set(name, result);
   return result;
 };
 
@@ -436,6 +452,53 @@ const calculateAge = (birthdate) => {
   }
   
   return age;
+};
+
+// Estimate age from alma mater graduation year (assumes graduation at ~22)
+const estimateAgeFromAlmaMater = (almaMater) => {
+  if (!almaMater) return null;
+  
+  let gradYear = null;
+  
+  if (Array.isArray(almaMater)) {
+    // Find the earliest graduation year
+    for (const am of almaMater) {
+      if (typeof am === 'object' && am.year) {
+        const year = parseInt(am.year, 10);
+        if (year && (!gradYear || year < gradYear)) {
+          gradYear = year;
+        }
+      }
+    }
+  } else if (typeof almaMater === 'object' && almaMater.year) {
+    gradYear = parseInt(almaMater.year, 10);
+  }
+  
+  if (!gradYear || gradYear < 1950 || gradYear > new Date().getFullYear()) {
+    return null;
+  }
+  
+  // Assume graduation at age 22
+  const currentYear = new Date().getFullYear();
+  return currentYear - gradYear + 22;
+};
+
+// Get coach age - uses birthdate if available, otherwise estimates from alma mater
+// Returns { age: number, isEstimate: boolean } or null
+const getCoachAge = (coach) => {
+  if (!coach) return null;
+  
+  // Try birthdate first (exact)
+  if (coach.birthdate) {
+    const age = calculateAge(coach.birthdate);
+    if (age) return { age, isEstimate: false };
+  }
+  
+  // Fall back to alma mater estimate
+  const estimatedAge = estimateAgeFromAlmaMater(coach.alma_mater);
+  if (estimatedAge) return { age: estimatedAge, isEstimate: true };
+  
+  return null;
 };
 
 // Format birthdate for display
@@ -550,86 +613,109 @@ const getCoachesByAlmaMater = (data, almaMater) => {
 };
 
 // Check if two school names refer to the same school
+// Schools where "X" and "X State" are DIFFERENT schools - never match these
+// Defined outside function for performance
+const DISTINCT_STATE_SCHOOLS = new Set([
+  'iowa', 'penn', 'michigan', 'ohio', 'washington', 'oregon', 
+  'arizona', 'mississippi', 'oklahoma', 'kansas', 'florida',
+  'colorado', 'utah', 'georgia', 'louisiana', 'kentucky',
+  'tennessee', 'alabama', 'north carolina', 'south carolina',
+  'new mexico', 'fresno', 'san diego', 'san jose', 'boise'
+]);
+
+// Helper functions defined outside for performance
+const normalizeForMatch = (name) => {
+  return name
+    .toLowerCase()
+    .trim()
+    .replace(/\bst\.\s*/g, 'state ')
+    .replace(/\bu\.\s*/g, 'university ')
+    .replace(/\buniv\.\s*/g, 'university ')
+    .replace(/[–—]/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
+const stripUniCollege = (name) => {
+  return name
+    .replace(/\s+state\s+university$/i, ' state')
+    .replace(/\s+university$/i, '')
+    .replace(/\s+college$/i, '')
+    .trim();
+};
+
 const schoolsMatch = (school1, school2) => {
   if (!school1 || !school2) return false;
   
-  // Helper to normalize a name for comparison
-  const normalize = (name) => {
-    return name
-      .toLowerCase()
-      .trim()
-      // Expand abbreviations
-      .replace(/\bst\.\s*/g, 'state ')
-      .replace(/\bu\.\s*/g, 'university ')
-      .replace(/\buniv\.\s*/g, 'university ')
-      // Normalize punctuation
-      .replace(/[–—]/g, '-')  // Normalize dashes
-      .replace(/\s+/g, ' ')
-      .trim();
-  };
+  // Check cache first (order-independent key)
+  const cacheKey = school1 < school2 ? `${school1}|||${school2}` : `${school2}|||${school1}`;
+  if (schoolMatchCache.has(cacheKey)) {
+    return schoolMatchCache.get(cacheKey);
+  }
   
-  // Helper to strip all common suffixes
-  const stripAllSuffixes = (name) => {
-    return name
-      .replace(/\s+state\s+university$/i, '')
-      .replace(/\s+state\s+college$/i, '')
-      .replace(/\s+university$/i, '')
-      .replace(/\s+college$/i, '')
-      .replace(/\s+state$/i, '')  // Also strip trailing "State"
-      .trim();
-  };
-  
-  // Helper to strip only university/college (keep State)
-  const stripUniCollege = (name) => {
-    return name
-      .replace(/\s+state\s+university$/i, ' state')
-      .replace(/\s+university$/i, '')
-      .replace(/\s+college$/i, '')
-      .trim();
-  };
-  
-  // Canonicalize both names first
+  // Canonicalize both names first (uses its own cache)
   const c1 = canonicalizeSchoolName(school1);
   const c2 = canonicalizeSchoolName(school2);
   
   // Exact match after canonicalization
-  if (c1.toLowerCase() === c2.toLowerCase()) return true;
+  if (c1.toLowerCase() === c2.toLowerCase()) {
+    schoolMatchCache.set(cacheKey, true);
+    return true;
+  }
   
   // Also try direct lookup normalization
   const s1 = normalizeSchool(school1);
   const s2 = normalizeSchool(school2);
-  if (s1.toLowerCase() === s2.toLowerCase()) return true;
+  if (s1.toLowerCase() === s2.toLowerCase()) {
+    schoolMatchCache.set(cacheKey, true);
+    return true;
+  }
   
   // Normalize both for comparison
-  const n1 = normalize(c1);
-  const n2 = normalize(c2);
-  if (n1 === n2) return true;
+  const n1 = normalizeForMatch(c1);
+  const n2 = normalizeForMatch(c2);
+  if (n1 === n2) {
+    schoolMatchCache.set(cacheKey, true);
+    return true;
+  }
   
   // Strip university/college suffix and compare (keeps "State")
   const u1 = stripUniCollege(n1);
   const u2 = stripUniCollege(n2);
-  if (u1 === u2 && u1.length >= 4) return true;
+  if (u1 === u2 && u1.length >= 4) {
+    schoolMatchCache.set(cacheKey, true);
+    return true;
+  }
   
-  // Strip ALL suffixes including State and compare
-  // This handles "Central Missouri" vs "Central Missouri State"
-  const base1 = stripAllSuffixes(n1);
-  const base2 = stripAllSuffixes(n2);
-  if (base1 === base2 && base1.length >= 5) return true;
-  
-  // Check if one is the base name of the other
-  // E.g., "Adrian" matches "Adrian College" or "Adrian State"
+  // Check if one is base + suffix of the other (e.g., "Adrian" vs "Adrian College")
+  // BUT NOT for schools where X and X State are different (Iowa vs Iowa State)
   const shorter = n1.length < n2.length ? n1 : n2;
   const longer = n1.length < n2.length ? n2 : n1;
   
   // Must be at least 4 chars to avoid false positives
   if (shorter.length >= 4) {
+    // Check if this is a case where X and X State are different schools
+    const shorterBase = shorter.replace(/\s+state$/i, '').trim();
+    if (DISTINCT_STATE_SCHOOLS.has(shorterBase)) {
+      // Only match if both have "state" or neither has "state"
+      const shorterHasState = /\s+state$/i.test(shorter);
+      const longerHasState = /\s+state/i.test(longer);
+      if (shorterHasState !== longerHasState) {
+        schoolMatchCache.set(cacheKey, false);
+        return false; // "Iowa" should NOT match "Iowa State"
+      }
+    }
+    
     // Check if longer starts with shorter + space + suffix
-    const suffixPattern = new RegExp(`^${shorter.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s+(state|college|university|state university|state college)$`, 'i');
+    // Only allow college/university suffix, NOT "state" for base schools
+    const suffixPattern = new RegExp(`^${shorter.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s+(college|university)$`, 'i');
     if (suffixPattern.test(longer)) {
+      schoolMatchCache.set(cacheKey, true);
       return true;
     }
   }
   
+  schoolMatchCache.set(cacheKey, false);
   return false;
 };
 
@@ -1946,11 +2032,14 @@ export default function CoachingHotboard() {
                   <div style={{ color: '#60a5fa', fontSize: '0.9rem', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
                     {coach.currentPosition} @ <TeamWithLogo team={coach.currentTeam} size={18} nameStyle={{ color: '#60a5fa' }} />
                   </div>
-                  {coach.birthdate && (
-                    <div style={{ color: '#8892b0', fontSize: '0.8rem' }}>
-                      Age: {calculateAge(coach.birthdate)}
-                    </div>
-                  )}
+                  {(() => {
+                    const ageInfo = getCoachAge(coach);
+                    return ageInfo && (
+                      <div style={{ color: '#8892b0', fontSize: '0.8rem' }}>
+                        Age: {ageInfo.age}{ageInfo.isEstimate ? ' (est.)' : ''}
+                      </div>
+                    );
+                  })()}
                 </div>
               ))}
             </div>
@@ -2035,16 +2124,19 @@ export default function CoachingHotboard() {
                   marginBottom: '0.25rem'
                 }}>
                   {searchedCoach.name}
-                  {searchedCoach.birthdate && (
-                    <span style={{ 
-                      fontSize: '1rem', 
-                      fontWeight: 400, 
-                      color: '#8892b0',
-                      marginLeft: '0.75rem'
-                    }}>
-                      (Age {calculateAge(searchedCoach.birthdate)})
-                    </span>
-                  )}
+                  {(() => {
+                    const ageInfo = getCoachAge(searchedCoach);
+                    return ageInfo && (
+                      <span style={{ 
+                        fontSize: '1rem', 
+                        fontWeight: 400, 
+                        color: '#8892b0',
+                        marginLeft: '0.75rem'
+                      }}>
+                        (Age {ageInfo.age}{ageInfo.isEstimate ? ', est.' : ''})
+                      </span>
+                    );
+                  })()}
                 </h2>
                 <div style={{ color: '#4ade80', fontSize: '1.1rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
                   {searchedCoach.currentPosition} @ <TeamWithLogo team={searchedCoach.currentTeam} size={22} nameStyle={{ color: '#4ade80' }} />
@@ -2077,7 +2169,8 @@ export default function CoachingHotboard() {
             {/* Bio Details */}
             {(() => {
               const salaryInfo = getSalaryInfo(searchedCoach, statsData);
-              const hasBioDetails = searchedCoach.birthdate || searchedCoach.birthplace || searchedCoach.alma_mater || salaryInfo;
+              const ageInfo = getCoachAge(searchedCoach);
+              const hasBioDetails = ageInfo || searchedCoach.birthplace || searchedCoach.alma_mater || salaryInfo;
               
               return hasBioDetails ? (
                 <div style={{
@@ -2088,12 +2181,20 @@ export default function CoachingHotboard() {
                   paddingBottom: '1.5rem',
                   borderBottom: '1px solid rgba(255,255,255,0.1)'
                 }}>
-                  {searchedCoach.birthdate && (
+                  {searchedCoach.birthdate ? (
                     <div style={{ fontSize: '0.9rem' }}>
                       <span style={{ color: '#8892b0' }}>🎂 Born: </span>
                       <span style={{ color: '#ccd6f6' }}>{formatBirthdate(searchedCoach.birthdate)} (Age {calculateAge(searchedCoach.birthdate)})</span>
                     </div>
-                  )}
+                  ) : (() => {
+                    const ageInfo = getCoachAge(searchedCoach);
+                    return ageInfo?.isEstimate && (
+                      <div style={{ fontSize: '0.9rem' }}>
+                        <span style={{ color: '#8892b0' }}>🎂 Age: </span>
+                        <span style={{ color: '#ccd6f6' }}>~{ageInfo.age} (estimated)</span>
+                      </div>
+                    );
+                  })()}
                   {searchedCoach.birthplace && (
                     <div style={{ fontSize: '0.9rem' }}>
                       <span style={{ color: '#8892b0' }}>📍 From: </span>
@@ -3062,16 +3163,19 @@ export default function CoachingHotboard() {
                 marginBottom: '0.25rem'
               }}>
                 {selectedCoach.name}
-                {selectedCoach.birthdate && (
-                  <span style={{ 
-                    fontSize: '1rem', 
-                    fontWeight: 400, 
-                    color: '#8892b0',
-                    marginLeft: '0.75rem'
-                  }}>
-                    (Age {calculateAge(selectedCoach.birthdate)})
-                  </span>
-                )}
+                {(() => {
+                  const ageInfo = getCoachAge(selectedCoach);
+                  return ageInfo && (
+                    <span style={{ 
+                      fontSize: '1rem', 
+                      fontWeight: 400, 
+                      color: '#8892b0',
+                      marginLeft: '0.75rem'
+                    }}>
+                      (Age {ageInfo.age}{ageInfo.isEstimate ? ', est.' : ''})
+                    </span>
+                  );
+                })()}
               </h2>
               <div style={{ color: '#f7c59f', fontSize: '1rem', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
                 {selectedCoach.currentPosition} @ <TeamWithLogo team={selectedCoach.currentTeam} size={22} nameStyle={{ color: '#f7c59f' }} />
@@ -3080,7 +3184,8 @@ export default function CoachingHotboard() {
               {/* Bio Details */}
               {(() => {
                 const salaryInfo = getSalaryInfo(selectedCoach, statsData);
-                const hasBioDetails = selectedCoach.birthdate || selectedCoach.birthplace || selectedCoach.alma_mater || salaryInfo;
+                const ageInfo = getCoachAge(selectedCoach);
+                const hasBioDetails = ageInfo || selectedCoach.birthplace || selectedCoach.alma_mater || salaryInfo;
                 
                 return hasBioDetails ? (
                   <div style={{
@@ -3091,7 +3196,7 @@ export default function CoachingHotboard() {
                     paddingTop: '0.75rem',
                     borderTop: '1px solid rgba(255,255,255,0.1)'
                   }}>
-                    {selectedCoach.birthdate && (
+                    {selectedCoach.birthdate ? (
                       <div style={{
                         display: 'flex',
                         alignItems: 'center',
@@ -3101,7 +3206,20 @@ export default function CoachingHotboard() {
                         <span style={{ color: '#8892b0' }}>🎂</span>
                         <span style={{ color: '#ccd6f6' }}>{formatBirthdate(selectedCoach.birthdate)} (Age {calculateAge(selectedCoach.birthdate)})</span>
                       </div>
-                    )}
+                    ) : (() => {
+                      const ageInfo = getCoachAge(selectedCoach);
+                      return ageInfo?.isEstimate && (
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.5rem',
+                          fontSize: '0.85rem'
+                        }}>
+                          <span style={{ color: '#8892b0' }}>🎂</span>
+                          <span style={{ color: '#ccd6f6' }}>~{ageInfo.age} years old (estimated)</span>
+                        </div>
+                      );
+                    })()}
                     {selectedCoach.birthplace && (
                       <div style={{
                         display: 'flex',
