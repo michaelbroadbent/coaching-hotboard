@@ -3,6 +3,7 @@ import ByStatsTable from './ByStatsTable';
 import StaffHistory from './StaffHistory';
 import { TeamWithLogo, TeamLogo, getTeamLogoUrl } from './teamLogos';
 import SchoolRoster from './SchoolRoster';
+import { supabase } from './supabaseClient';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // SCHOOL NAME CANONICALIZATION
@@ -419,8 +420,24 @@ const canonicalizeSchoolName = (name) => {
 
 // Format year range - show single year if start equals end, show "present" if raw_years contains it
 const formatYearRange = (start, end, rawYears = null) => {
+  // Handle null/undefined years
+  if (start == null && end == null) {
+    return null; // Will be filtered out in display
+  }
+  if (start == null) {
+    return `–${end}`;
+  }
+  if (end == null) {
+    return `${start}–`;
+  }
+  
   // Check if raw_years contains "present"
   if (rawYears && rawYears.toLowerCase().includes('present')) {
+    return `${start}–present`;
+  }
+  // Treat current year or next year as "present" (roster scrape uses 2026 for current jobs)
+  const currentYear = new Date().getFullYear();
+  if (end >= currentYear) {
     return `${start}–present`;
   }
   if (start === end) return `${start}`;
@@ -760,7 +777,8 @@ const findExternalConnections = (data, selectedSchool) => {
           // Check if they were at the same school using proper matching
           if (schoolsMatch(staffJob.school, otherJob.school)) {
             // Check for year overlap
-            if (staffJob.years && otherJob.years) {
+            if (staffJob.years?.start != null && staffJob.years?.end != null && 
+                otherJob.years?.start != null && otherJob.years?.end != null) {
               const overlapStart = Math.max(staffJob.years.start, otherJob.years.start);
               const overlapEnd = Math.min(staffJob.years.end, otherJob.years.end);
               
@@ -1156,7 +1174,8 @@ export default function CoachingHotboard() {
             if (!schoolsMatch(job.school, otherJob.school)) return;
             
             // Check year overlap
-            if (job.years && otherJob.years) {
+            if (job.years?.start != null && job.years?.end != null && 
+                otherJob.years?.start != null && otherJob.years?.end != null) {
               const overlapStart = Math.max(job.years.start, otherJob.years.start);
               const overlapEnd = Math.min(job.years.end, otherJob.years.end);
               
@@ -1199,7 +1218,8 @@ export default function CoachingHotboard() {
           otherCoach.coaching_career?.forEach(otherJob => {
             // Check if they worked at the same school while selected coach was HC
             if (schoolsMatch(job.school, otherJob.school)) {
-              if (job.years && otherJob.years) {
+              if (job.years?.start != null && job.years?.end != null && 
+                  otherJob.years?.start != null && otherJob.years?.end != null) {
                 const overlapStart = Math.max(job.years.start, otherJob.years.start);
                 const overlapEnd = Math.min(job.years.end, otherJob.years.end);
                 
@@ -1300,31 +1320,129 @@ export default function CoachingHotboard() {
     setAdvancedStatsView('offense'); // Reset advanced stats view
   };
   
-  // Load data from JSON file
+  // Load data from Supabase
   useEffect(() => {
-    // Load both coaches data and stats data
-    Promise.all([
-      fetch(import.meta.env.BASE_URL + 'coaches_data.json').then(res => {
-        if (!res.ok) throw new Error('Failed to load coaches data');
-        return res.json();
-      }),
-      fetch(import.meta.env.BASE_URL + 'coaching_stats_data.json').then(res => {
-        if (!res.ok) {
-          console.warn('Stats data not available');
-          return null;
+    async function loadData() {
+      try {
+        // Helper function to fetch all rows with pagination (Supabase default limit is 1000)
+        async function fetchAllRows(table, selectQuery = '*', filters = {}) {
+          const allRows = [];
+          const pageSize = 1000;
+          let offset = 0;
+          let hasMore = true;
+
+          while (hasMore) {
+            let query = supabase
+              .from(table)
+              .select(selectQuery)
+              .range(offset, offset + pageSize - 1);
+
+            // Apply filters
+            if (filters.eq) {
+              for (const [col, val] of Object.entries(filters.eq)) {
+                query = query.eq(col, val);
+              }
+            }
+            if (filters.order) {
+              query = query.order(filters.order.column, { ascending: filters.order.ascending });
+            }
+
+            const { data, error } = await query;
+            if (error) throw error;
+
+            allRows.push(...data);
+            hasMore = data.length === pageSize;
+            offset += pageSize;
+          }
+
+          return allRows;
         }
-        return res.json();
-      }).catch(() => null) // Stats data is optional
-    ])
-    .then(([coachData, statsDataResult]) => {
-      setCoachesData(coachData);
-      setStatsData(statsDataResult);
-      setLoading(false);
-    })
-    .catch(err => {
-      setError(err.message);
-      setLoading(false);
-    });
+
+        console.log('Loading data from Supabase...');
+
+        // Fetch all data (with pagination for large tables)
+        const [coaches, schools, stints, almaMaters] = await Promise.all([
+          fetchAllRows('coaches', '*', { eq: { is_primary: true } }),
+          fetchAllRows('schools', 'id, canonical_name'),
+          fetchAllRows('coaching_stints', '*', { order: { column: 'start_year', ascending: false } }),
+          fetchAllRows('coach_alma_maters', '*')
+        ]);
+
+        console.log(`Loaded: ${coaches.length} coaches, ${schools.length} schools, ${stints.length} stints, ${almaMaters.length} alma maters`);
+
+        // Create school lookup map
+        const schoolMap = {};
+        schools.forEach(s => {
+          schoolMap[s.id] = s.canonical_name;
+        });
+
+        // Group stints by coach
+        const stintsByCoach = {};
+        stints.forEach(stint => {
+          if (!stintsByCoach[stint.coach_id]) {
+            stintsByCoach[stint.coach_id] = [];
+          }
+          stintsByCoach[stint.coach_id].push({
+            school: schoolMap[stint.school_id] || 'Unknown',
+            position: stint.position,
+            years: {
+              start: stint.start_year,
+              end: stint.end_year
+            },
+            raw_years: stint.raw_years
+          });
+        });
+
+        // Group alma maters by coach
+        const almaByCoach = {};
+        almaMaters.forEach(am => {
+          if (!almaByCoach[am.coach_id]) {
+            almaByCoach[am.coach_id] = [];
+          }
+          almaByCoach[am.coach_id].push({
+            school: schoolMap[am.school_id] || 'Unknown',
+            year: am.graduation_year,
+            degree: am.degree
+          });
+        });
+
+        // Transform to expected format
+        const transformedCoaches = coaches.map(coach => ({
+          id: coach.id,
+          name: coach.name,
+          currentTeam: schoolMap[coach.current_team_id] || null,
+          currentPosition: coach.current_position,
+          birthdate: coach.birthdate,
+          birthplace: coach.birthplace,
+          hometown: coach.hometown,
+          wikipedia_url: coach.wikipedia_url,
+          source: coach.source,
+          alma_mater: almaByCoach[coach.id] || [],
+          coaching_career: stintsByCoach[coach.id] || []
+        }));
+
+        setCoachesData(transformedCoaches);
+
+        // Load stats data (still from JSON for now)
+        try {
+          const statsRes = await fetch(import.meta.env.BASE_URL + 'coaching_stats_data.json');
+          if (statsRes.ok) {
+            const statsDataResult = await statsRes.json();
+            setStatsData(statsDataResult);
+          }
+        } catch (statsErr) {
+          console.warn('Stats data not available:', statsErr);
+        }
+
+        setLoading(false);
+      } catch (err) {
+        console.error('Error loading data:', err);
+        setError(err.message);
+        setLoading(false);
+      }
+    }
+
+    loadData();
   }, []);
   
   const allSchools = useMemo(() => getAllCurrentTeams(coachesData), [coachesData]);
@@ -1629,7 +1747,7 @@ export default function CoachingHotboard() {
           <div style={{ fontSize: '2rem', marginBottom: '1rem' }}>⚠️</div>
           <div style={{ marginBottom: '1rem' }}>Error loading data: {error}</div>
           <div style={{ fontSize: '0.9rem', color: '#8892b0' }}>
-            Make sure <code>coaches_data.json</code> is in the <code>public</code> folder.
+            Check your Supabase connection settings in <code>.env</code> file.
           </div>
         </div>
       </div>
@@ -2265,7 +2383,7 @@ export default function CoachingHotboard() {
                       fontSize: '0.8rem',
                       fontFamily: 'monospace'
                     }}>
-                      {formatYearRange(job.years?.start, job.years?.end, job.raw_years)}
+                      {formatYearRange(job.years?.start, job.years?.end, job.raw_years) || '—'}
                     </div>
                     <div>
                       <span style={{ color: '#f7c59f', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}><TeamLogo team={job.school} size={16} />{job.school}</span>
@@ -3374,7 +3492,7 @@ export default function CoachingHotboard() {
                           fontSize: '0.85rem',
                           fontWeight: 600
                         }}>
-                          {formatYearRange(job.years.start, job.years.end, job.raw_years)}
+                          {formatYearRange(job.years?.start, job.years?.end, job.raw_years) || '—'}
                         </div>
                         <div>
                           <div style={{ color: '#fff', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
@@ -3456,7 +3574,7 @@ export default function CoachingHotboard() {
                                   }}
                                 >
                                   <span style={{ color: '#f7c59f', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}><TeamLogo team={stint.school} size={14} />{stint.school}</span>
-                                  {' '}({formatYearRange(stint.years.start, stint.years.end, stint.rawYears)})
+                                  {stint.years?.start != null && ` (${formatYearRange(stint.years.start, stint.years.end, stint.rawYears)})`}
                                   <br />
                                   <span style={{ opacity: 0.8 }}>My role: {stint.myPosition}</span>
                                 </div>
@@ -3531,7 +3649,7 @@ export default function CoachingHotboard() {
                                   }}
                                 >
                                   <span style={{ color: '#f7c59f', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}><TeamLogo team={stint.school} size={14} />{stint.school}</span>
-                                  {' '}({formatYearRange(stint.years.start, stint.years.end)})
+                                  {stint.years?.start != null && ` (${formatYearRange(stint.years.start, stint.years.end)})`}
                                   <br />
                                   <span style={{ opacity: 0.8 }}>Their role: {stint.position}</span>
                                 </div>
@@ -3544,7 +3662,7 @@ export default function CoachingHotboard() {
                               background: 'rgba(74,222,128,0.1)',
                               borderRadius: '4px'
                             }}>
-                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>→ Became HC at <TeamWithLogo team={item.becameHC.school} size={14} nameStyle={{ color: '#4ade80' }} /> ({formatYearRange(item.becameHC.years.start, item.becameHC.years.end, item.becameHC.rawYears)})</span>
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>→ Became HC at <TeamWithLogo team={item.becameHC.school} size={14} nameStyle={{ color: '#4ade80' }} />{item.becameHC.years?.start != null && ` (${formatYearRange(item.becameHC.years.start, item.becameHC.years.end, item.becameHC.rawYears)})`}</span>
                             </div>
                           </div>
                         ))}
