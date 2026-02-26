@@ -4,10 +4,401 @@ import StaffHistory from './StaffHistory';
 import { TeamWithLogo, TeamLogo, getTeamLogoUrl } from './teamLogos';
 import SchoolRoster from './SchoolRoster';
 
-// Normalize school names for matching - keep it simple, just lowercase and trim
+// ═══════════════════════════════════════════════════════════════════════════
+// SCHOOL NAME CANONICALIZATION
+// Maps variant names to canonical forms for consistent display and matching
+// ═══════════════════════════════════════════════════════════════════════════
+
+const SCHOOL_CANONICAL_MAP = {
+  // Big names with common variants
+  "university of alabama": "Alabama",
+  "alabama crimson tide": "Alabama",
+  "university of alabama at birmingham": "UAB",
+  "alabama-birmingham": "UAB",
+  "university of alabama: birmingham": "UAB",
+  "uab": "UAB",
+  "alabama state university": "Alabama State",
+  
+  "university of michigan": "Michigan",
+  "michigan wolverines": "Michigan",
+  "michigan state university": "Michigan State",
+  "western michigan university": "Western Michigan",
+  "eastern michigan university": "Eastern Michigan",
+  "central michigan university": "Central Michigan",
+  "northern michigan university": "Northern Michigan",
+  
+  "university of florida": "Florida",
+  "florida gators": "Florida",
+  "florida state university": "Florida State",
+  "university of central florida": "UCF",
+  "central florida": "UCF",
+  "ucf": "UCF",
+  "florida international university": "FIU",
+  "florida international": "FIU",
+  "fiu": "FIU",
+  "florida atlantic university": "Florida Atlantic",
+  "fau": "Florida Atlantic",
+  
+  "university of georgia": "Georgia",
+  "georgia bulldogs": "Georgia",
+  "georgia state university": "Georgia State",
+  "georgia southern university": "Georgia Southern",
+  "georgia institute of technology": "Georgia Tech",
+  
+  "university of texas": "Texas",
+  "texas longhorns": "Texas",
+  "texas tech university": "Texas Tech",
+  "university of texas at el paso": "UTEP",
+  "utep": "UTEP",
+  "texas a&m university": "Texas A&M",
+  "texas a&m university - commerce": "Texas A&M–Commerce",
+  "texas a&m university–commerce": "Texas A&M–Commerce",
+  "texas a&m-commerce": "Texas A&M–Commerce",
+  "university of north texas": "North Texas",
+  "texas state university": "Texas State",
+  "university of texas at san antonio": "UTSA",
+  "utsa": "UTSA",
+  
+  "ohio state university": "Ohio State",
+  "the ohio state university": "Ohio State",
+  "ohio state buckeyes": "Ohio State",
+  "ohio university": "Ohio",
+  "bowling green state university": "Bowling Green",
+  "kent state university": "Kent State",
+  "miami university": "Miami (OH)",
+  "miami (ohio)": "Miami (OH)",
+  "miami redhawks": "Miami (OH)",
+  
+  "penn state university": "Penn State",
+  "pennsylvania state university": "Penn State",
+  "university of pennsylvania": "Penn",
+  "temple university": "Temple",
+  
+  "university of oregon": "Oregon",
+  "oregon ducks": "Oregon",
+  "oregon state university": "Oregon State",
+  "eastern oregon university": "Eastern Oregon",
+  "southern oregon university": "Southern Oregon",
+  "western oregon university": "Western Oregon",
+  "portland state university": "Portland State",
+  
+  "university of tennessee": "Tennessee",
+  "tennessee volunteers": "Tennessee",
+  "university of tennessee at chattanooga": "Chattanooga",
+  "tennessee-chattanooga": "Chattanooga",
+  "middle tennessee state university": "Middle Tennessee",
+  "middle tennessee state": "Middle Tennessee",
+  "tennessee tech university": "Tennessee Tech",
+  "tennessee state university": "Tennessee State",
+  "east tennessee state university": "East Tennessee State",
+  
+  "university of south carolina": "South Carolina",
+  "south carolina gamecocks": "South Carolina",
+  "university of north carolina": "North Carolina",
+  "north carolina state university": "NC State",
+  "nc state": "NC State",
+  "n.c. state": "NC State",
+  "north carolina state": "NC State",
+  "east carolina university": "East Carolina",
+  "western carolina university": "Western Carolina",
+  "coastal carolina university": "Coastal Carolina",
+  "appalachian state university": "Appalachian State",
+  
+  "west virginia university": "West Virginia",
+  "virginia tech university": "Virginia Tech",
+  "virginia polytechnic institute": "Virginia Tech",
+  "university of virginia": "Virginia",
+  "old dominion university": "Old Dominion",
+  "james madison university": "James Madison",
+  
+  "western kentucky university": "Western Kentucky",
+  "eastern kentucky university": "Eastern Kentucky",
+  "university of kentucky": "Kentucky",
+  "university of louisville": "Louisville",
+  "murray state university": "Murray State",
+  "morehead state university": "Morehead State",
+  
+  "louisiana state university": "LSU",
+  "lsu tigers": "LSU",
+  "lsu": "LSU",
+  "louisiana-lafayette": "Louisiana",
+  "louisiana lafayette": "Louisiana",
+  "ul lafayette": "Louisiana",
+  "louisiana-monroe": "Louisiana–Monroe",
+  "louisiana monroe": "Louisiana–Monroe",
+  "university of louisiana at lafayette": "Louisiana",
+  "university of louisiana at monroe": "Louisiana–Monroe",
+  "louisiana tech university": "Louisiana Tech",
+  "southeastern louisiana university": "Southeastern Louisiana",
+  "northwestern state university": "Northwestern State",
+  
+  "university of mississippi": "Ole Miss",
+  "mississippi": "Ole Miss",
+  "mississippi state university": "Mississippi State",
+  "southern mississippi": "Southern Miss",
+  "university of southern mississippi": "Southern Miss",
+  "jackson state university": "Jackson State",
+  
+  "brigham young university": "BYU",
+  "brigham young": "BYU",
+  "byu": "BYU",
+  
+  "university of miami": "Miami (FL)",
+  "miami hurricanes": "Miami (FL)",
+  "miami": "Miami (FL)",
+  
+  "university of pittsburgh": "Pittsburgh",
+  "pitt panthers": "Pittsburgh",
+  "pitt": "Pittsburgh",
+  
+  "university of southern california": "USC",
+  "southern california": "USC",
+  "usc": "USC",
+  
+  "university of connecticut": "UConn",
+  "connecticut huskies": "UConn",
+  "connecticut": "UConn",
+  "uconn": "UConn",
+  
+  "university of massachusetts": "UMass",
+  "massachusetts": "UMass",
+  "umass": "UMass",
+  
+  "university of notre dame": "Notre Dame",
+  "notre dame fighting irish": "Notre Dame",
+  
+  "sam houston state university": "Sam Houston State",
+  "sam houston": "Sam Houston State",
+  
+  "california university of pennsylvania": "Cal U (PA)",
+  "clarion university of pennsylvania": "Clarion",
+  
+  // More state schools
+  "university of arizona": "Arizona",
+  "arizona state university": "Arizona State",
+  "university of utah": "Utah",
+  "utah state university": "Utah State",
+  "university of colorado": "Colorado",
+  "colorado state university": "Colorado State",
+  "university of wyoming": "Wyoming",
+  
+  "university of washington": "Washington",
+  "washington state university": "Washington State",
+  "eastern washington university": "Eastern Washington",
+  "central washington university": "Central Washington",
+  
+  "university of california, los angeles": "UCLA",
+  "ucla": "UCLA",
+  "university of california, berkeley": "California",
+  "cal": "California",
+  "stanford university": "Stanford",
+  "san diego state university": "San Diego State",
+  "sdsu": "San Diego State",
+  "san jose state university": "San Jose State",
+  "sjsu": "San Jose State",
+  "fresno state university": "Fresno State",
+  "unlv": "UNLV",
+  "university of nevada, las vegas": "UNLV",
+  "smu": "SMU",
+  "southern methodist university": "SMU",
+  "southern methodist": "SMU",
+  "tcu": "TCU",
+  "texas christian university": "TCU",
+  "texas christian": "TCU",
+  
+  "university of iowa": "Iowa",
+  "iowa state university": "Iowa State",
+  "university of northern iowa": "Northern Iowa",
+  
+  "university of kansas": "Kansas",
+  "kansas state university": "Kansas State",
+  
+  "university of missouri": "Missouri",
+  "missouri state university": "Missouri State",
+  "central missouri state": "Central Missouri",
+  "central missouri state university": "Central Missouri",
+  "university of central missouri": "Central Missouri",
+  "southeast missouri state": "Southeast Missouri State",
+  "southeast missouri state university": "Southeast Missouri State",
+  "northwest missouri state": "Northwest Missouri State",
+  "northwest missouri state university": "Northwest Missouri State",
+  "missouri western state": "Missouri Western",
+  "missouri western state university": "Missouri Western",
+  "missouri southern state": "Missouri Southern",
+  "missouri southern state university": "Missouri Southern",
+  
+  "university of nebraska": "Nebraska",
+  "university of oklahoma": "Oklahoma",
+  "oklahoma state university": "Oklahoma State",
+  "central oklahoma": "Central Oklahoma",
+  "university of central oklahoma": "Central Oklahoma",
+  
+  "university of arkansas": "Arkansas",
+  "arkansas state university": "Arkansas State",
+  "arkansas state": "Arkansas State",
+  "central arkansas": "Central Arkansas",
+  "university of central arkansas": "Central Arkansas",
+  
+  "university of wisconsin": "Wisconsin",
+  "university of minnesota": "Minnesota",
+  "university of illinois": "Illinois",
+  "northwestern university": "Northwestern",
+  "purdue university": "Purdue",
+  "indiana university": "Indiana",
+  "ball state university": "Ball State",
+  
+  "rutgers university": "Rutgers",
+  "syracuse university": "Syracuse",
+  "boston college": "Boston College",
+  "boston university": "Boston University",
+  
+  // FCS Schools
+  "north dakota state university": "North Dakota State",
+  "south dakota state university": "South Dakota State",
+  "university of north dakota": "North Dakota",
+  "university of south dakota": "South Dakota",
+  "montana state university": "Montana State",
+  "university of montana": "Montana",
+  
+  // D2/D3 Schools that appear often
+  "adrian": "Adrian",
+  "adrian college": "Adrian",
+  "ashland": "Ashland",
+  "ashland university": "Ashland",
+  "augustana": "Augustana",
+  "augustana college": "Augustana",
+  "bemidji state": "Bemidji State",
+  "bemidji state university": "Bemidji State",
+  "central washington": "Central Washington",
+  "central washington university": "Central Washington",
+  "concordia": "Concordia",
+  "concordia university": "Concordia",
+  "delta state": "Delta State",
+  "delta state university": "Delta State",
+  "emporia state": "Emporia State",
+  "emporia state university": "Emporia State",
+  "ferris state": "Ferris State",
+  "ferris state university": "Ferris State",
+  "findlay": "Findlay",
+  "university of findlay": "Findlay",
+  "fort hays state": "Fort Hays State",
+  "fort hays state university": "Fort Hays State",
+  "grand valley state": "Grand Valley State",
+  "grand valley state university": "Grand Valley State",
+  "henderson state": "Henderson State",
+  "henderson state university": "Henderson State",
+  "hillsdale": "Hillsdale",
+  "hillsdale college": "Hillsdale",
+  "indianapolis": "Indianapolis",
+  "university of indianapolis": "Indianapolis",
+  "lenoir-rhyne": "Lenoir-Rhyne",
+  "lenoir-rhyne university": "Lenoir-Rhyne",
+  "lindenwood": "Lindenwood",
+  "lindenwood university": "Lindenwood",
+  "mary": "Mary",
+  "university of mary": "Mary",
+  "midwestern state": "Midwestern State",
+  "midwestern state university": "Midwestern State",
+  "minnesota state": "Minnesota State",
+  "minnesota state university": "Minnesota State",
+  "minnesota state mankato": "Minnesota State",
+  "pittsburg state": "Pittsburg State",
+  "pittsburg state university": "Pittsburg State",
+  "saginaw valley state": "Saginaw Valley State",
+  "saginaw valley state university": "Saginaw Valley State",
+  "shepherd": "Shepherd",
+  "shepherd university": "Shepherd",
+  "shippensburg": "Shippensburg",
+  "shippensburg university": "Shippensburg",
+  "sioux falls": "Sioux Falls",
+  "university of sioux falls": "Sioux Falls",
+  "slippery rock": "Slippery Rock",
+  "slippery rock university": "Slippery Rock",
+  "southwest baptist": "Southwest Baptist",
+  "southwest baptist university": "Southwest Baptist",
+  "tarleton state": "Tarleton State",
+  "tarleton state university": "Tarleton State",
+  "texas a&m-kingsville": "Texas A&M–Kingsville",
+  "texas a&m university-kingsville": "Texas A&M–Kingsville",
+  "truman state": "Truman State",
+  "truman state university": "Truman State",
+  "tuskegee": "Tuskegee",
+  "tuskegee university": "Tuskegee",
+  "valdosta state": "Valdosta State",
+  "valdosta state university": "Valdosta State",
+  "washburn": "Washburn",
+  "washburn university": "Washburn",
+  "wayne state": "Wayne State",
+  "wayne state university": "Wayne State",
+  "west alabama": "West Alabama",
+  "university of west alabama": "West Alabama",
+  "west georgia": "West Georgia",
+  "university of west georgia": "West Georgia",
+  "west texas a&m": "West Texas A&M",
+  "west texas a&m university": "West Texas A&M",
+  "western oregon": "Western Oregon",
+  "western oregon university": "Western Oregon",
+  "winona state": "Winona State",
+  "winona state university": "Winona State",
+  
+  // Service academies
+  "united states military academy": "Army",
+  "united states naval academy": "Navy",
+  "united states air force academy": "Air Force",
+};
+
+// Normalize school names for matching - canonicalize known schools
 const normalizeSchool = (name) => {
   if (!name) return '';
-  return name.toLowerCase().trim();
+  const lower = name.toLowerCase().trim();
+  return SCHOOL_CANONICAL_MAP[lower] || name;
+};
+
+// Get canonical name for display (used in dropdowns, lists)
+const canonicalizeSchoolName = (name) => {
+  if (!name) return name;
+  
+  let normalized = name.trim();
+  const lower = normalized.toLowerCase();
+  
+  // Check direct mapping first
+  if (SCHOOL_CANONICAL_MAP[lower]) {
+    return SCHOOL_CANONICAL_MAP[lower];
+  }
+  
+  // Expand common abbreviations BEFORE other transformations
+  normalized = normalized
+    .replace(/\bSt\.\s*/gi, 'State ')  // "St." -> "State"
+    .replace(/\bU\.\s*/gi, 'University ')  // "U." -> "University"
+    .replace(/\bUniv\.\s*/gi, 'University ')  // "Univ." -> "University"
+    .replace(/\s+/g, ' ')  // Clean up multiple spaces
+    .trim();
+  
+  // Check mapping again after expansion
+  const expandedLower = normalized.toLowerCase();
+  if (SCHOOL_CANONICAL_MAP[expandedLower]) {
+    return SCHOOL_CANONICAL_MAP[expandedLower];
+  }
+  
+  // Strip common suffixes if no direct mapping
+  let result = normalized
+    // "X State University" -> "X State"
+    .replace(/\s+State\s+University$/i, ' State')
+    // "University of X" -> "X" (but not "University of X at Y")
+    .replace(/^University\s+of\s+(?!.*\s+at\s+)/i, '')
+    // "X University" at end -> "X"
+    .replace(/\s+University$/i, '')
+    // "X College" at end -> "X"
+    .replace(/\s+College$/i, '')
+    .trim();
+  
+  // Final check after stripping
+  const strippedLower = result.toLowerCase();
+  if (SCHOOL_CANONICAL_MAP[strippedLower]) {
+    return SCHOOL_CANONICAL_MAP[strippedLower];
+  }
+  
+  return result;
 };
 
 // Format year range - show single year if start equals end, show "present" if raw_years contains it
@@ -72,14 +463,61 @@ const formatBirthdate = (birthdate) => {
 };
 
 // Get all unique alma maters from coaches
+// Helper to extract school name from alma_mater entry (can be string or object)
+const getAlmaMaterSchool = (am) => {
+  if (!am) return null;
+  if (typeof am === 'string') return am;
+  if (typeof am === 'object' && am.school) return am.school;
+  return null;
+};
+
+// Helper to format alma_mater for display
+const formatAlmaMater = (almaMater) => {
+  if (!almaMater) return null;
+  if (typeof almaMater === 'string') return almaMater;
+  if (Array.isArray(almaMater)) {
+    return almaMater
+      .map(am => getAlmaMaterSchool(am))
+      .filter(Boolean)
+      .join(', ');
+  }
+  return getAlmaMaterSchool(almaMater);
+};
+
 const getAllAlmaMaters = (data) => {
   const almaMaters = new Set();
   data.forEach(coach => {
     if (coach.alma_mater) {
       if (Array.isArray(coach.alma_mater)) {
-        coach.alma_mater.forEach(am => almaMaters.add(am));
+        coach.alma_mater.forEach(am => {
+          const school = getAlmaMaterSchool(am);
+          if (school) {
+            // Handle comma-separated strings within array items
+            if (school.includes(', ')) {
+              school.split(', ').forEach(s => {
+                const canonical = canonicalizeSchoolName(s.trim());
+                if (canonical) almaMaters.add(canonical);
+              });
+            } else {
+              const canonical = canonicalizeSchoolName(school);
+              if (canonical) almaMaters.add(canonical);
+            }
+          }
+        });
       } else {
-        almaMaters.add(coach.alma_mater);
+        const school = getAlmaMaterSchool(coach.alma_mater);
+        if (school) {
+          // Split comma-separated strings into individual schools
+          if (school.includes(', ')) {
+            school.split(', ').forEach(s => {
+              const canonical = canonicalizeSchoolName(s.trim());
+              if (canonical) almaMaters.add(canonical);
+            });
+          } else {
+            const canonical = canonicalizeSchoolName(school);
+            if (canonical) almaMaters.add(canonical);
+          }
+        }
       }
     }
   });
@@ -91,9 +529,23 @@ const getCoachesByAlmaMater = (data, almaMater) => {
   return data.filter(coach => {
     if (!coach.alma_mater) return false;
     if (Array.isArray(coach.alma_mater)) {
-      return coach.alma_mater.some(am => schoolsMatch(am, almaMater));
+      return coach.alma_mater.some(am => {
+        const school = getAlmaMaterSchool(am);
+        if (!school) return false;
+        // Handle comma-separated strings within array items
+        if (school.includes(', ')) {
+          return school.split(', ').some(s => schoolsMatch(s.trim(), almaMater));
+        }
+        return schoolsMatch(school, almaMater);
+      });
     }
-    return schoolsMatch(coach.alma_mater, almaMater);
+    const school = getAlmaMaterSchool(coach.alma_mater);
+    if (!school) return false;
+    // Handle comma-separated strings
+    if (school.includes(', ')) {
+      return school.split(', ').some(s => schoolsMatch(s.trim(), almaMater));
+    }
+    return schoolsMatch(school, almaMater);
   });
 };
 
@@ -101,40 +553,79 @@ const getCoachesByAlmaMater = (data, almaMater) => {
 const schoolsMatch = (school1, school2) => {
   if (!school1 || !school2) return false;
   
+  // Helper to normalize a name for comparison
+  const normalize = (name) => {
+    return name
+      .toLowerCase()
+      .trim()
+      // Expand abbreviations
+      .replace(/\bst\.\s*/g, 'state ')
+      .replace(/\bu\.\s*/g, 'university ')
+      .replace(/\buniv\.\s*/g, 'university ')
+      // Normalize punctuation
+      .replace(/[–—]/g, '-')  // Normalize dashes
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+  
+  // Helper to strip all common suffixes
+  const stripAllSuffixes = (name) => {
+    return name
+      .replace(/\s+state\s+university$/i, '')
+      .replace(/\s+state\s+college$/i, '')
+      .replace(/\s+university$/i, '')
+      .replace(/\s+college$/i, '')
+      .replace(/\s+state$/i, '')  // Also strip trailing "State"
+      .trim();
+  };
+  
+  // Helper to strip only university/college (keep State)
+  const stripUniCollege = (name) => {
+    return name
+      .replace(/\s+state\s+university$/i, ' state')
+      .replace(/\s+university$/i, '')
+      .replace(/\s+college$/i, '')
+      .trim();
+  };
+  
+  // Canonicalize both names first
+  const c1 = canonicalizeSchoolName(school1);
+  const c2 = canonicalizeSchoolName(school2);
+  
+  // Exact match after canonicalization
+  if (c1.toLowerCase() === c2.toLowerCase()) return true;
+  
+  // Also try direct lookup normalization
   const s1 = normalizeSchool(school1);
   const s2 = normalizeSchool(school2);
+  if (s1.toLowerCase() === s2.toLowerCase()) return true;
   
-  // Exact match
-  if (s1 === s2) return true;
+  // Normalize both for comparison
+  const n1 = normalize(c1);
+  const n2 = normalize(c2);
+  if (n1 === n2) return true;
   
-  // Remove only University/College suffixes (NOT "State" - that changes meaning)
-  const stripSuffixes = (s) => s
-    .replace(/\s+university$/i, '')
-    .replace(/\s+college$/i, '')
-    .trim();
+  // Strip university/college suffix and compare (keeps "State")
+  const u1 = stripUniCollege(n1);
+  const u2 = stripUniCollege(n2);
+  if (u1 === u2 && u1.length >= 4) return true;
   
-  const s1Stripped = stripSuffixes(s1);
-  const s2Stripped = stripSuffixes(s2);
+  // Strip ALL suffixes including State and compare
+  // This handles "Central Missouri" vs "Central Missouri State"
+  const base1 = stripAllSuffixes(n1);
+  const base2 = stripAllSuffixes(n2);
+  if (base1 === base2 && base1.length >= 5) return true;
   
-  // After stripping suffixes, check for exact match
-  if (s1Stripped === s2Stripped && s1Stripped.length >= 5) return true;
+  // Check if one is the base name of the other
+  // E.g., "Adrian" matches "Adrian College" or "Adrian State"
+  const shorter = n1.length < n2.length ? n1 : n2;
+  const longer = n1.length < n2.length ? n2 : n1;
   
-  // Check if one starts with the other (for variations like "Penn State" and "Penn State University")
-  const shorter = s1.length < s2.length ? s1 : s2;
-  const longer = s1.length < s2.length ? s2 : s1;
-  
-  // Must be at least 6 chars to avoid false positives
-  if (shorter.length < 6) return false;
-  
-  // Ratio check - shorter must be at least 70% of longer
-  const ratio = shorter.length / longer.length;
-  if (ratio < 0.7) return false;
-  
-  // The shorter string must match at the START of the longer string
-  // AND the next character in longer must be a space (word boundary)
-  if (longer.startsWith(shorter)) {
-    // Make sure we're at a word boundary
-    if (longer.length === shorter.length || longer[shorter.length] === ' ') {
+  // Must be at least 4 chars to avoid false positives
+  if (shorter.length >= 4) {
+    // Check if longer starts with shorter + space + suffix
+    const suffixPattern = new RegExp(`^${shorter.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s+(state|college|university|state university|state college)$`, 'i');
+    if (suffixPattern.test(longer)) {
       return true;
     }
   }
@@ -146,7 +637,10 @@ const schoolsMatch = (school1, school2) => {
 const getAllCurrentTeams = (data) => {
   const teams = new Set();
   data.forEach(coach => {
-    if (coach.currentTeam) teams.add(coach.currentTeam);
+    if (coach.currentTeam) {
+      const canonical = canonicalizeSchoolName(coach.currentTeam);
+      teams.add(canonical);
+    }
   });
   return Array.from(teams).sort();
 };
@@ -1610,9 +2104,7 @@ export default function CoachingHotboard() {
                     <div style={{ fontSize: '0.9rem' }}>
                       <span style={{ color: '#8892b0' }}>🎓 Played at: </span>
                       <span style={{ color: '#ccd6f6' }}>
-                        {Array.isArray(searchedCoach.alma_mater) 
-                          ? searchedCoach.alma_mater.join(', ') 
-                          : searchedCoach.alma_mater}
+                        {formatAlmaMater(searchedCoach.alma_mater)}
                       </span>
                     </div>
                   )}
@@ -2451,7 +2943,7 @@ export default function CoachingHotboard() {
           <StaffHistory 
             coachesData={coachesData}
             onSelectCoach={(coach) => {
-              if (coach) setSelectedCoach(coach);
+              if (coach) handleCoachClick(coach);
             }}
           />
         </div>
@@ -2462,7 +2954,7 @@ export default function CoachingHotboard() {
         <div style={{ maxWidth: '1000px', margin: '0 auto 2rem', padding: '0 1rem' }}>
           <SchoolRoster
             coachesData={coachesData}
-            onSelectCoach={(coach) => setSelectedCoach(coach)}
+            onSelectCoach={(coach) => handleCoachClick(coach)}
           />
         </div>
       )}
@@ -2630,9 +3122,7 @@ export default function CoachingHotboard() {
                       }}>
                         <span style={{ color: '#8892b0' }}>🎓</span>
                         <span style={{ color: '#ccd6f6' }}>
-                          {Array.isArray(selectedCoach.alma_mater) 
-                            ? selectedCoach.alma_mater.join(', ') 
-                            : selectedCoach.alma_mater}
+                          {formatAlmaMater(selectedCoach.alma_mater)}
                         </span>
                       </div>
                     )}
