@@ -36,7 +36,7 @@ const getPositionType = (position) => {
   return null;
 };
 
-// Reuse your normalizeTeamForStats function
+// Normalize team name from coaches data to stats format
 const normalizeTeamForStats = (team) => {
   if (!team) return '';
   
@@ -102,6 +102,57 @@ const normalizeTeamForStats = (team) => {
   return teamMappings[normalized] || team;
 };
 
+// Stats abbreviation -> Full display name (for consistent display across app)
+const statsToDisplayName = {
+  'App State': 'Appalachian State',
+  'Arizona St': 'Arizona State',
+  'Arkansas St': 'Arkansas State',
+  'Ball St': 'Ball State',
+  'Boise St': 'Boise State',
+  'C Michigan': 'Central Michigan',
+  'Coastal Car': 'Coastal Carolina',
+  'Colorado St': 'Colorado State',
+  'E Carolina': 'East Carolina',
+  'E Michigan': 'Eastern Michigan',
+  'Florida Intl': 'FIU',
+  'Florida St': 'Florida State',
+  'Fresno St': 'Fresno State',
+  'Georgia So': 'Georgia Southern',
+  'Georgia St': 'Georgia State',
+  "Hawai&#039;i": "Hawai'i",
+  'Iowa St': 'Iowa State',
+  'J Madison': 'James Madison',
+  'Jacksonville St': 'Jacksonville State',
+  'Kansas St': 'Kansas State',
+  'Kennesaw St': 'Kennesaw State',
+  'Kent St': 'Kent State',
+  'Miami OH': 'Miami (OH)',
+  'Michigan St': 'Michigan State',
+  'Middle Tenn': 'Middle Tennessee',
+  'Mississippi': 'Ole Miss',
+  'Mississippi St': 'Mississippi State',
+  'Missouri St': 'Missouri State',
+  'N Illinois': 'Northern Illinois',
+  'N Texas': 'North Texas',
+  'New Mexico St': 'New Mexico State',
+  'Ohio St': 'Ohio State',
+  'Oklahoma St': 'Oklahoma State',
+  'Oregon St': 'Oregon State',
+  'Penn St': 'Penn State',
+  'S Alabama': 'South Alabama',
+  'S Florida': 'South Florida',
+  'San Diego St': 'San Diego State',
+  'San Jose St': 'San José State',
+  'Southern Miss': 'Southern Miss',
+  'Texas St': 'Texas State',
+  'UL Monroe': 'Louisiana–Monroe',
+  'UMass': 'UMass',
+  'Utah St': 'Utah State',
+  'W Kentucky': 'Western Kentucky',
+  'W Michigan': 'Western Michigan',
+  'Washington St': 'Washington State',
+};
+
 // Reverse mapping: stats abbreviation -> full name (for advanced stats lookup)
 const statsToFullName = {
   'Arizona St': 'Arizona State',
@@ -128,7 +179,7 @@ const statsToFullName = {
   'Miami OH': 'Miami (OH)',
   'Michigan St': 'Michigan State',
   'Middle Tenn': 'Middle Tennessee',
-  'Mississippi': 'Ole Miss',  // Regular stats use "Mississippi", advanced use "Ole Miss"
+  'Mississippi': 'Ole Miss',
   'Mississippi St': 'Mississippi State',
   'Missouri St': 'Missouri State',
   'N Illinois': 'Northern Illinois',
@@ -149,6 +200,11 @@ const statsToFullName = {
   'W Kentucky': 'Western Kentucky',
   'W Michigan': 'Western Michigan',
   'Washington St': 'Washington State',
+};
+
+// Get display name for a stats team (use full name for consistency)
+const getDisplayName = (statsTeam) => {
+  return statsToDisplayName[statsTeam] || statsToFullName[statsTeam] || statsTeam;
 };
 
 // Format salary for display
@@ -201,38 +257,80 @@ const getRankColor = (rank) => {
   return '#ef4444';
 };
 
+// Helper to safely format alma_mater for display
+const formatAlmaMater = (almaMater) => {
+  if (!almaMater) return null;
+  
+  // Handle string
+  if (typeof almaMater === 'string') return almaMater;
+  
+  // Handle object with {school, year, degree}
+  if (typeof almaMater === 'object' && !Array.isArray(almaMater)) {
+    if (almaMater.school) {
+      return almaMater.year ? `${almaMater.school} ('${String(almaMater.year).slice(-2)})` : almaMater.school;
+    }
+    return null;
+  }
+  
+  // Handle array
+  if (Array.isArray(almaMater) && almaMater.length > 0) {
+    const first = almaMater[0];
+    if (typeof first === 'string') return first;
+    if (typeof first === 'object' && first.school) {
+      return first.year ? `${first.school} ('${String(first.year).slice(-2)})` : first.school;
+    }
+  }
+  
+  return null;
+};
+
 export default function ByStatsTable({ coachesData = [], statsData = null, onCoachClick }) {
   const [activeTab, setActiveTab] = useState('offense'); // 'offense' or 'defense'
   const [sortConfig, setSortConfig] = useState({ key: 'ppg', direction: 'desc' });
   const [expandedTeam, setExpandedTeam] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedYear, setSelectedYear] = useState('2025'); // NEW: Year selector
 
-  // Get all FBS teams from stats data
-  const allTeams = useMemo(() => {
-    if (!statsData?.offense?.PointsPerGame) return [];
-    return Object.keys(statsData.offense.PointsPerGame).sort();
+  // Available years (based on stats data)
+  const availableYears = useMemo(() => {
+    if (!statsData?.offense?.PointsPerGame) return ['2025'];
+    const years = new Set();
+    Object.values(statsData.offense.PointsPerGame).forEach(teamData => {
+      Object.keys(teamData).forEach(year => years.add(year));
+    });
+    return Array.from(years).sort((a, b) => b - a); // Sort descending
   }, [statsData]);
 
-  // Build stats for each team (2025 data)
+  // Get all FBS teams from stats data for selected year
+  const allTeams = useMemo(() => {
+    if (!statsData?.offense?.PointsPerGame) return [];
+    // Get teams that have data for the selected year
+    return Object.entries(statsData.offense.PointsPerGame)
+      .filter(([team, data]) => data[selectedYear] !== undefined)
+      .map(([team]) => team)
+      .sort();
+  }, [statsData, selectedYear]);
+
+  // Build stats for each team based on selected year
   const teamStats = useMemo(() => {
     if (!statsData) return [];
 
     return allTeams.map(team => {
-      // Helper to get stat value
+      // Helper to get stat value for selected year
       const getStat = (category, statKey) => {
-        return statsData[category]?.[statKey]?.[team]?.['2025'] || null;
+        return statsData[category]?.[statKey]?.[team]?.[selectedYear] || null;
       };
 
       // Get advanced stats (uses full team names)
       const getAdvanced = (category) => {
         // Try abbreviated name first
-        let result = statsData[category]?.['2025']?.[team];
+        let result = statsData[category]?.[selectedYear]?.[team];
         if (result) return result;
         
         // Try full name mapping
         const fullName = statsToFullName[team];
         if (fullName) {
-          result = statsData[category]?.['2025']?.[fullName];
+          result = statsData[category]?.[selectedYear]?.[fullName];
           if (result) return result;
         }
         
@@ -244,7 +342,7 @@ export default function ByStatsTable({ coachesData = [], statsData = null, onCoa
         ];
         
         for (const variant of variations) {
-          result = statsData[category]?.['2025']?.[variant];
+          result = statsData[category]?.[selectedYear]?.[variant];
           if (result) return result;
         }
         
@@ -253,6 +351,7 @@ export default function ByStatsTable({ coachesData = [], statsData = null, onCoa
 
       return {
         team,
+        displayName: getDisplayName(team), // Use full display name
         offense: {
           ppg: getStat('offense', 'PointsPerGame'),
           ypg: getStat('offense', 'YardsPerGame'),
@@ -273,28 +372,71 @@ export default function ByStatsTable({ coachesData = [], statsData = null, onCoa
         }
       };
     });
-  }, [statsData, allTeams]);
+  }, [statsData, allTeams, selectedYear]);
 
-  // Get coordinators for a team
-  const getCoordinatorsForTeam = useMemo(() => {
-    return (statsTeam, type) => {
-      // Find coaches whose currentTeam matches this stats team
-      return coachesData.filter(coach => {
-        const coachTeam = normalizeTeamForStats(coach.currentTeam);
-        const posType = getPositionType(coach.currentPosition);
+  // Pre-compute coordinator lookup table ONCE when data loads
+  // Structure: { normalizedTeam: { year: { offense: [...], defense: [...] } } }
+  const coordinatorLookup = useMemo(() => {
+    const lookup = {};
+    
+    coachesData.forEach(coach => {
+      if (!coach.coaching_career) return;
+      
+      coach.coaching_career.forEach(job => {
+        const posType = getPositionType(job.position);
+        if (!posType || posType === 'hc') return; // Only OC/DC
         
-        // Match team name
-        const teamMatches = coachTeam === statsTeam || 
-                          coach.currentTeam === statsTeam ||
-                          normalizeTeamForStats(coach.currentTeam).toLowerCase() === statsTeam.toLowerCase();
+        const type = posType === 'oc' ? 'offense' : 'defense';
+        const normalizedTeam = normalizeTeamForStats(job.school);
+        const startYear = job.years?.start;
+        const endYear = job.years?.end || new Date().getFullYear();
         
-        // Match position type
-        const posMatches = type === 'offense' ? posType === 'oc' : posType === 'dc';
+        if (!startYear) return;
         
-        return teamMatches && posMatches;
+        // Add to lookup for each year they held this position
+        for (let year = startYear; year <= Math.min(endYear, 2025); year++) {
+          const yearStr = String(year);
+          
+          // Initialize nested structure
+          if (!lookup[normalizedTeam]) lookup[normalizedTeam] = {};
+          if (!lookup[normalizedTeam][yearStr]) lookup[normalizedTeam][yearStr] = { offense: [], defense: [] };
+          
+          // Also index by original team name for matching
+          const origTeam = job.school;
+          if (!lookup[origTeam]) lookup[origTeam] = {};
+          if (!lookup[origTeam][yearStr]) lookup[origTeam][yearStr] = { offense: [], defense: [] };
+          
+          // Check for duplicates before adding
+          const targetArray = lookup[normalizedTeam][yearStr][type];
+          if (!targetArray.find(c => c.name === coach.name)) {
+            const coordEntry = {
+              ...coach,
+              positionThatYear: job.position,
+              teamThatYear: job.school,
+              isStillThere: normalizeTeamForStats(coach.currentTeam) === normalizedTeam ||
+                           coach.currentTeam === normalizedTeam ||
+                           normalizeTeamForStats(coach.currentTeam)?.toLowerCase() === normalizedTeam.toLowerCase()
+            };
+            targetArray.push(coordEntry);
+            
+            // Also add to original team name if different
+            if (origTeam !== normalizedTeam) {
+              if (!lookup[origTeam][yearStr][type].find(c => c.name === coach.name)) {
+                lookup[origTeam][yearStr][type].push(coordEntry);
+              }
+            }
+          }
+        }
       });
-    };
+    });
+    
+    return lookup;
   }, [coachesData]);
+
+  // O(1) lookup for coordinators
+  const getCoordinatorsForTeam = (statsTeam, type, year) => {
+    return coordinatorLookup[statsTeam]?.[year]?.[type] || [];
+  };
 
   // Column definitions
   const offenseColumns = [
@@ -338,7 +480,8 @@ export default function ByStatsTable({ coachesData = [], statsData = null, onCoa
     // Filter by search
     if (searchTerm) {
       data = data.filter(item =>
-        item.team.toLowerCase().includes(searchTerm.toLowerCase())
+        item.team.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        item.displayName.toLowerCase().includes(searchTerm.toLowerCase())
       );
     }
 
@@ -452,6 +595,35 @@ export default function ByStatsTable({ coachesData = [], statsData = null, onCoa
           ))}
         </div>
 
+        {/* Year Selector */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <label style={{ color: '#8892b0', fontSize: '0.85rem' }}>Season:</label>
+          <select
+            value={selectedYear}
+            onChange={(e) => {
+              setSelectedYear(e.target.value);
+              setExpandedTeam(null);
+            }}
+            style={{
+              padding: '0.5rem 0.75rem',
+              background: 'rgba(255,255,255,0.05)',
+              border: '1px solid rgba(255,107,53,0.3)',
+              borderRadius: '8px',
+              color: '#ff6b35',
+              fontSize: '0.85rem',
+              fontWeight: 600,
+              cursor: 'pointer',
+              outline: 'none'
+            }}
+          >
+            {availableYears.map(year => (
+              <option key={year} value={year} style={{ background: '#1a1f35' }}>
+                {year}
+              </option>
+            ))}
+          </select>
+        </div>
+
         {/* Search */}
         <input
           type="text"
@@ -503,7 +675,7 @@ export default function ByStatsTable({ coachesData = [], statsData = null, onCoa
                 left: 0,
                 background: '#0a0f1c',
                 zIndex: 2,
-                width: '140px'
+                width: '160px'
               }}>
                 Team
               </th>
@@ -557,7 +729,7 @@ export default function ByStatsTable({ coachesData = [], statsData = null, onCoa
           <tbody>
             {sortedData.map((row, idx) => {
               const isExpanded = expandedTeam === row.team;
-              const coordinators = getCoordinatorsForTeam(row.team, activeTab);
+              const coordinators = getCoordinatorsForTeam(row.team, activeTab, selectedYear);
               const side = activeTab;
 
               return (
@@ -594,8 +766,8 @@ export default function ByStatsTable({ coachesData = [], statsData = null, onCoa
                       <span style={{ marginRight: '0.5rem', transition: 'transform 0.2s ease', display: 'inline-block', transform: isExpanded ? 'rotate(90deg)' : 'rotate(0)' }}>
                         ▶
                       </span>
-                      <TeamLogo team={row.team} size={20} style={{ marginRight: '0.4rem' }} />
-                      {row.team}
+                      <TeamLogo team={row.displayName} size={20} style={{ marginRight: '0.4rem' }} />
+                      {row.displayName}
                     </td>
                     {columns.map(col => {
                       const { display, rank } = formatStatCell(row[side][col.key], col.decimals, col.isPercent);
@@ -652,19 +824,20 @@ export default function ByStatsTable({ coachesData = [], statsData = null, onCoa
                             fontSize: '0.9rem',
                             fontWeight: 700
                           }}>
-                            {activeTab === 'offense' ? '🏈 Offensive' : '🛡️ Defensive'} Coordinator{coordinators.length > 1 ? 's' : ''}
+                            {activeTab === 'offense' ? '🏈 Offensive' : '🛡️ Defensive'} Coordinator{coordinators.length > 1 ? 's' : ''} ({selectedYear})
                           </h4>
 
                           {coordinators.length > 0 ? (
                             <div style={{
                               display: 'grid',
-                              gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+                              gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
                               gap: '1rem'
                             }}>
                               {coordinators.map((coord, cIdx) => {
                                 const salaryInfo = getSalaryInfo(coord);
                                 const age = calculateAge(coord.birthdate);
-                                const isCo = coord.currentPosition?.toLowerCase().includes('co-');
+                                const isCo = coord.positionThatYear?.toLowerCase().includes('co-');
+                                const almaMaterDisplay = formatAlmaMater(coord.alma_mater);
 
                                 return (
                                   <div
@@ -694,7 +867,8 @@ export default function ByStatsTable({ coachesData = [], statsData = null, onCoa
                                       display: 'flex',
                                       alignItems: 'center',
                                       gap: '0.5rem',
-                                      marginBottom: '0.5rem'
+                                      marginBottom: '0.5rem',
+                                      flexWrap: 'wrap'
                                     }}>
                                       <span style={{
                                         fontWeight: 700,
@@ -717,13 +891,48 @@ export default function ByStatsTable({ coachesData = [], statsData = null, onCoa
                                       )}
                                     </div>
 
+                                    {/* Position that year */}
                                     <div style={{
                                       color: '#8892b0',
                                       fontSize: '0.8rem',
-                                      marginBottom: '0.75rem'
+                                      marginBottom: '0.5rem'
                                     }}>
-                                      {coord.currentPosition}
+                                      {coord.positionThatYear || coord.currentPosition}
                                     </div>
+
+                                    {/* Current status - where are they now? */}
+                                    {!coord.isStillThere && coord.currentTeam && (
+                                      <div style={{
+                                        background: 'rgba(255,107,53,0.15)',
+                                        border: '1px solid rgba(255,107,53,0.3)',
+                                        borderRadius: '6px',
+                                        padding: '0.5rem 0.75rem',
+                                        marginBottom: '0.75rem',
+                                        fontSize: '0.75rem'
+                                      }}>
+                                        <span style={{ color: '#ff6b35', fontWeight: 600 }}>Now: </span>
+                                        <span style={{ color: '#fff' }}>{coord.currentPosition}</span>
+                                        <span style={{ color: '#8892b0' }}> at </span>
+                                        <span style={{ color: '#fff', fontWeight: 600 }}>
+                                          <TeamLogo team={coord.currentTeam} size={14} style={{ marginRight: '4px', verticalAlign: 'middle' }} />
+                                          {coord.currentTeam}
+                                        </span>
+                                      </div>
+                                    )}
+                                    
+                                    {coord.isStillThere && (
+                                      <div style={{
+                                        background: 'rgba(74,222,128,0.15)',
+                                        border: '1px solid rgba(74,222,128,0.3)',
+                                        borderRadius: '6px',
+                                        padding: '0.5rem 0.75rem',
+                                        marginBottom: '0.75rem',
+                                        fontSize: '0.75rem',
+                                        color: '#4ade80'
+                                      }}>
+                                        ✓ Still at {row.displayName}
+                                      </div>
+                                    )}
 
                                     <div style={{
                                       display: 'flex',
@@ -731,9 +940,9 @@ export default function ByStatsTable({ coachesData = [], statsData = null, onCoa
                                       gap: '0.75rem',
                                       fontSize: '0.75rem'
                                     }}>
-                                      {coord.alma_mater && (
+                                      {almaMaterDisplay && (
                                         <span style={{ color: '#ccd6f6' }}>
-                                          🎓 {Array.isArray(coord.alma_mater) ? coord.alma_mater[0] : coord.alma_mater}
+                                          🎓 {almaMaterDisplay}
                                         </span>
                                       )}
                                       {age && (
@@ -775,7 +984,7 @@ export default function ByStatsTable({ coachesData = [], statsData = null, onCoa
                               fontStyle: 'italic',
                               fontSize: '0.85rem'
                             }}>
-                              No {activeTab === 'offense' ? 'offensive' : 'defensive'} coordinator data available for this team
+                              No {activeTab === 'offense' ? 'offensive' : 'defensive'} coordinator data available for {row.displayName} in {selectedYear}
                             </div>
                           )}
                         </div>
@@ -797,7 +1006,7 @@ export default function ByStatsTable({ coachesData = [], statsData = null, onCoa
         display: 'flex',
         justifyContent: 'space-between'
       }}>
-        <span>Showing {sortedData.length} of {allTeams.length} teams (2025 stats)</span>
+        <span>Showing {sortedData.length} of {allTeams.length} teams ({selectedYear} stats)</span>
         <span>Lower rank = better performance</span>
       </div>
     </div>
