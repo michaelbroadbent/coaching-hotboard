@@ -289,7 +289,21 @@ export default function ByStatsTable({ coachesData = [], statsData = null, onCoa
   const [sortConfig, setSortConfig] = useState({ key: 'ppg', direction: 'desc' });
   const [expandedTeam, setExpandedTeam] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedYear, setSelectedYear] = useState('2025'); // NEW: Year selector
+  const [selectedYear, setSelectedYear] = useState('2025'); // Year selector
+  
+  // Stat filters - none selected = show all, filters narrow down
+  // Type filters: basic, advanced
+  // Category filters: passing, rushing
+  const [statFilters, setStatFilters] = useState({
+    basic: false,
+    advanced: false,
+    passing: false,
+    rushing: false
+  });
+
+  const toggleFilter = (filter) => {
+    setStatFilters(prev => ({ ...prev, [filter]: !prev[filter] }));
+  };
 
   // Available years (based on stats data)
   const availableYears = useMemo(() => {
@@ -438,40 +452,118 @@ export default function ByStatsTable({ coachesData = [], statsData = null, onCoa
     return coordinatorLookup[statsTeam]?.[year]?.[type] || [];
   };
 
-  // Column definitions
-  const offenseColumns = [
-    { key: 'ppg', label: 'PPG', decimals: 1, tooltip: 'Points Per Game' },
-    { key: 'ypg', label: 'YPG', decimals: 1, tooltip: 'Yards Per Game' },
-    { key: 'passYpg', label: 'Pass', decimals: 1, tooltip: 'Pass Yards Per Game' },
-    { key: 'rushYpg', label: 'Rush', decimals: 1, tooltip: 'Rush Yards Per Game' },
-    { key: 'ypa', label: 'Y/A', decimals: 2, tooltip: 'Yards Per Pass Attempt' },
+  // Column definitions with type (basic/advanced) and category (overall/passing/rushing)
+  const offenseColumnsAll = [
+    // Basic stats
+    { key: 'ppg', label: 'PPG', decimals: 1, tooltip: 'Points Per Game', type: 'basic', category: 'overall' },
+    { key: 'ypg', label: 'YPG', decimals: 1, tooltip: 'Yards Per Game', type: 'basic', category: 'overall' },
+    { key: 'passYpg', label: 'Pass', decimals: 1, tooltip: 'Pass Yards Per Game', type: 'basic', category: 'passing' },
+    { key: 'ypa', label: 'Y/A', decimals: 2, tooltip: 'Yards Per Pass Attempt', type: 'basic', category: 'passing' },
+    { key: 'rushYpg', label: 'Rush', decimals: 1, tooltip: 'Rush Yards Per Game', type: 'basic', category: 'rushing' },
+    { key: 'sacked', label: 'Sack/G', decimals: 2, tooltip: 'Sacks Allowed Per Game', type: 'basic', category: 'passing' },
   ];
 
-  const defenseColumns = [
-    { key: 'ppg', label: 'PPG', decimals: 1, tooltip: 'Points Allowed Per Game' },
-    { key: 'ypg', label: 'YPG', decimals: 1, tooltip: 'Yards Allowed Per Game' },
-    { key: 'passYpg', label: 'Pass', decimals: 1, tooltip: 'Pass Yards Allowed' },
-    { key: 'rushYpg', label: 'Rush', decimals: 1, tooltip: 'Rush Yards Allowed' },
-    { key: 'sacks', label: 'Sacks', decimals: 2, tooltip: 'Sacks Per Game' },
-    { key: 'takeaways', label: 'TO', decimals: 2, tooltip: 'Takeaways Per Game' },
+  const defenseColumnsAll = [
+    // Basic stats
+    { key: 'ppg', label: 'PPG', decimals: 1, tooltip: 'Points Allowed Per Game', type: 'basic', category: 'overall' },
+    { key: 'ypg', label: 'YPG', decimals: 1, tooltip: 'Yards Allowed Per Game', type: 'basic', category: 'overall' },
+    { key: 'passYpg', label: 'Pass', decimals: 1, tooltip: 'Pass Yards Allowed', type: 'basic', category: 'passing' },
+    { key: 'rushYpg', label: 'Rush', decimals: 1, tooltip: 'Rush Yards Allowed', type: 'basic', category: 'rushing' },
+    { key: 'sacks', label: 'Sacks', decimals: 2, tooltip: 'Sacks Per Game', type: 'basic', category: 'passing' },
+    { key: 'takeaways', label: 'TO', decimals: 2, tooltip: 'Takeaways Per Game', type: 'basic', category: 'overall' },
   ];
 
-  const advancedOffenseColumns = [
-    { key: 'AdjEPAPlay', label: 'Adj EPA', decimals: 2 },
-    { key: 'SRPct', label: 'SR%', decimals: 1, isPercent: true },
-    { key: 'EPADB', label: 'EPA/DB', decimals: 2 },
-    { key: 'EPARush', label: 'EPA/Rush', decimals: 2 },
-    { key: 'HavocPct', label: 'Havoc%', decimals: 1, isPercent: true },
+  const advancedOffenseColumnsAll = [
+    // Advanced overall
+    { key: 'AdjEPAPlay', label: 'Adj EPA', decimals: 2, type: 'advanced', category: 'overall' },
+    { key: 'EPAPlay', label: 'EPA/Play', decimals: 2, type: 'advanced', category: 'overall' },
+    { key: 'YardsPlay', label: 'Yds/Play', decimals: 2, type: 'advanced', category: 'overall' },
+    { key: 'SRPct', label: 'SR%', decimals: 1, isPercent: true, type: 'advanced', category: 'overall' },
+    { key: 'HavocPct', label: 'Havoc%', decimals: 1, isPercent: true, type: 'advanced', category: 'overall' },
+    // Advanced passing
+    { key: 'EPADB', label: 'EPA/DB', decimals: 2, type: 'advanced', category: 'passing' },
+    { key: 'YardsDB', label: 'Yds/DB', decimals: 2, type: 'advanced', category: 'passing' },
+    { key: 'PassSRPct', label: 'Pass SR%', decimals: 1, isPercent: true, type: 'advanced', category: 'passing' },
+    // Advanced rushing
+    { key: 'EPARush', label: 'EPA/Rush', decimals: 2, type: 'advanced', category: 'rushing' },
+    { key: 'YardsRush', label: 'Yds/Rush', decimals: 2, type: 'advanced', category: 'rushing' },
+    { key: 'RushSRPct', label: 'Rush SR%', decimals: 1, isPercent: true, type: 'advanced', category: 'rushing' },
   ];
 
-  const advancedDefenseColumns = [
-    { key: 'AdjEPAPlay', label: 'Adj EPA', decimals: 2 },
-    { key: 'SRPct', label: 'SR%', decimals: 1, isPercent: true },
-    { key: 'HavocPct', label: 'Havoc%', decimals: 1, isPercent: true },
+  const advancedDefenseColumnsAll = [
+    // Advanced overall
+    { key: 'AdjEPAPlay', label: 'Adj EPA', decimals: 2, type: 'advanced', category: 'overall' },
+    { key: 'EPAPlay', label: 'EPA/Play', decimals: 2, type: 'advanced', category: 'overall' },
+    { key: 'YardsPlay', label: 'Yds/Play', decimals: 2, type: 'advanced', category: 'overall' },
+    { key: 'SRPct', label: 'SR%', decimals: 1, isPercent: true, type: 'advanced', category: 'overall' },
+    { key: 'HavocPct', label: 'Havoc%', decimals: 1, isPercent: true, type: 'advanced', category: 'overall' },
+    // Advanced passing
+    { key: 'EPADB', label: 'EPA/DB', decimals: 2, type: 'advanced', category: 'passing' },
+    { key: 'YardsDB', label: 'Yds/DB', decimals: 2, type: 'advanced', category: 'passing' },
+    { key: 'PassSRPct', label: 'Pass SR%', decimals: 1, isPercent: true, type: 'advanced', category: 'passing' },
+    // Advanced rushing
+    { key: 'EPARush', label: 'EPA/Rush', decimals: 2, type: 'advanced', category: 'rushing' },
+    { key: 'YardsRush', label: 'Yds/Rush', decimals: 2, type: 'advanced', category: 'rushing' },
+    { key: 'RushSRPct', label: 'Rush SR%', decimals: 1, isPercent: true, type: 'advanced', category: 'rushing' },
   ];
 
-  const columns = activeTab === 'offense' ? offenseColumns : defenseColumns;
-  const advancedColumns = activeTab === 'offense' ? advancedOffenseColumns : advancedDefenseColumns;
+  // Filter columns based on selected filters
+  // No filters = show all
+  // Filters narrow down: must match ALL selected filter dimensions
+  const filterColumns = (cols) => {
+    const hasTypeFilter = statFilters.basic || statFilters.advanced;
+    const hasCategoryFilter = statFilters.passing || statFilters.rushing;
+    
+    // No filters = show all
+    if (!hasTypeFilter && !hasCategoryFilter) {
+      return cols;
+    }
+    
+    return cols.filter(col => {
+      // Check type filter (basic/advanced)
+      let passesTypeFilter = true;
+      if (hasTypeFilter) {
+        passesTypeFilter = (statFilters.basic && col.type === 'basic') || 
+                          (statFilters.advanced && col.type === 'advanced');
+      }
+      
+      // Check category filter (passing/rushing)
+      // If category filters are set, only show passing/rushing (not overall)
+      let passesCategoryFilter = true;
+      if (hasCategoryFilter) {
+        passesCategoryFilter = (statFilters.passing && col.category === 'passing') || 
+                               (statFilters.rushing && col.category === 'rushing');
+      }
+      
+      return passesTypeFilter && passesCategoryFilter;
+    });
+  };
+
+  const baseColumns = activeTab === 'offense' ? offenseColumnsAll : defenseColumnsAll;
+  const advColumnsAll = activeTab === 'offense' ? advancedOffenseColumnsAll : advancedDefenseColumnsAll;
+  
+  // Combine and filter all columns together for consistent filtering
+  const allColumnsFiltered = filterColumns([...baseColumns, ...advColumnsAll]);
+  
+  // Split back into basic and advanced for rendering
+  const columns = allColumnsFiltered.filter(c => c.type === 'basic');
+  const advancedColumns = allColumnsFiltered.filter(c => c.type === 'advanced');
+
+  // Reset sort if current sort key is no longer visible
+  const effectiveSortConfig = useMemo(() => {
+    const sortKeyVisible = allColumnsFiltered.some(c => c.key === sortConfig.key);
+    if (!sortKeyVisible && allColumnsFiltered.length > 0) {
+      return { key: allColumnsFiltered[0].key, direction: 'desc' };
+    }
+    return sortConfig;
+  }, [sortConfig, allColumnsFiltered]);
+
+  // Calculate dynamic min-width based on visible columns
+  const tableMinWidth = useMemo(() => {
+    const teamColWidth = 160;
+    const dataColWidth = 75;
+    return teamColWidth + (columns.length + advancedColumns.length) * dataColWidth;
+  }, [columns.length, advancedColumns.length]);
 
   // Sort and filter data
   const sortedData = useMemo(() => {
@@ -486,18 +578,18 @@ export default function ByStatsTable({ coachesData = [], statsData = null, onCoa
     }
 
     // Sort
-    if (sortConfig.key) {
+    if (effectiveSortConfig.key) {
       data.sort((a, b) => {
         const side = activeTab;
         let aVal, bVal;
 
         // Check if it's an advanced stat
-        if (advancedColumns.find(c => c.key === sortConfig.key)) {
-          aVal = a[side].advanced?.[sortConfig.key]?.rank;
-          bVal = b[side].advanced?.[sortConfig.key]?.rank;
+        if (advColumnsAll.find(c => c.key === effectiveSortConfig.key)) {
+          aVal = a[side].advanced?.[effectiveSortConfig.key]?.rank;
+          bVal = b[side].advanced?.[effectiveSortConfig.key]?.rank;
         } else {
-          aVal = a[side][sortConfig.key]?.rank;
-          bVal = b[side][sortConfig.key]?.rank;
+          aVal = a[side][effectiveSortConfig.key]?.rank;
+          bVal = b[side][effectiveSortConfig.key]?.rank;
         }
 
         // Handle nulls - push them to the bottom
@@ -506,12 +598,12 @@ export default function ByStatsTable({ coachesData = [], statsData = null, onCoa
 
         // For ranks, lower is better
         // 'desc' = best first (lowest ranks first), 'asc' = worst first (highest ranks first)
-        return sortConfig.direction === 'desc' ? aVal - bVal : bVal - aVal;
+        return effectiveSortConfig.direction === 'desc' ? aVal - bVal : bVal - aVal;
       });
     }
 
     return data;
-  }, [teamStats, sortConfig, searchTerm, activeTab, advancedColumns]);
+  }, [teamStats, effectiveSortConfig, searchTerm, activeTab, advColumnsAll]);
 
   // Handle sort click
   const handleSort = (key) => {
@@ -643,17 +735,74 @@ export default function ByStatsTable({ coachesData = [], statsData = null, onCoa
         />
       </div>
 
-      {/* Legend */}
+      {/* Stat Category Filters */}
       <div style={{
         display: 'flex',
-        gap: '1.5rem',
+        alignItems: 'center',
+        gap: '0.75rem',
         marginBottom: '1rem',
-        fontSize: '0.75rem',
-        color: '#8892b0'
+        flexWrap: 'wrap'
       }}>
-        <span>Regular Stats</span>
-        <span style={{ color: '#a78bfa' }}>● Advanced Stats (2014+)</span>
-        <span style={{ marginLeft: 'auto' }}>Click team for coordinator info</span>
+        <span style={{ color: '#8892b0', fontSize: '0.75rem', fontWeight: 600 }}>Filter:</span>
+        
+        {/* Type filters */}
+        {[
+          { id: 'basic', label: 'Basic', color: '#8892b0' },
+          { id: 'advanced', label: 'Advanced', color: '#a78bfa' },
+        ].map(filter => (
+          <button
+            key={filter.id}
+            onClick={() => toggleFilter(filter.id)}
+            style={{
+              padding: '0.35rem 0.75rem',
+              background: statFilters[filter.id] ? `${filter.color}25` : 'transparent',
+              border: `1px solid ${statFilters[filter.id] ? filter.color : 'rgba(255,255,255,0.15)'}`,
+              borderRadius: '6px',
+              color: statFilters[filter.id] ? filter.color : '#666',
+              cursor: 'pointer',
+              fontSize: '0.75rem',
+              fontWeight: 600,
+              transition: 'all 0.2s ease'
+            }}
+          >
+            {filter.label}
+          </button>
+        ))}
+        
+        <span style={{ color: '#444', fontSize: '0.7rem' }}>│</span>
+        
+        {/* Category filters */}
+        {[
+          { id: 'passing', label: 'Passing', color: '#60a5fa' },
+          { id: 'rushing', label: 'Rushing', color: '#4ade80' }
+        ].map(filter => (
+          <button
+            key={filter.id}
+            onClick={() => toggleFilter(filter.id)}
+            style={{
+              padding: '0.35rem 0.75rem',
+              background: statFilters[filter.id] ? `${filter.color}25` : 'transparent',
+              border: `1px solid ${statFilters[filter.id] ? filter.color : 'rgba(255,255,255,0.15)'}`,
+              borderRadius: '6px',
+              color: statFilters[filter.id] ? filter.color : '#666',
+              cursor: 'pointer',
+              fontSize: '0.75rem',
+              fontWeight: 600,
+              transition: 'all 0.2s ease'
+            }}
+          >
+            {filter.label}
+          </button>
+        ))}
+        
+        {/* Show column count */}
+        <span style={{ 
+          marginLeft: 'auto', 
+          color: '#8892b0', 
+          fontSize: '0.7rem' 
+        }}>
+          {allColumnsFiltered.length} columns • Click team for coordinator info
+        </span>
       </div>
 
       {/* Table */}
@@ -662,7 +811,7 @@ export default function ByStatsTable({ coachesData = [], statsData = null, onCoa
           width: '100%',
           borderCollapse: 'collapse',
           fontSize: '0.8rem',
-          minWidth: '900px'
+          minWidth: `${tableMinWidth}px`
         }}>
           <thead>
             <tr style={{ background: activeTab === 'offense' ? 'rgba(74,222,128,0.1)' : 'rgba(96,165,250,0.1)' }}>
@@ -679,7 +828,10 @@ export default function ByStatsTable({ coachesData = [], statsData = null, onCoa
               }}>
                 Team
               </th>
-              {columns.map(col => (
+              {columns.map(col => {
+                const categoryColor = col.category === 'passing' ? '#60a5fa' : 
+                                     col.category === 'rushing' ? '#4ade80' : '#8892b0';
+                return (
                 <th
                   key={col.key}
                   onClick={() => handleSort(col.key)}
@@ -687,7 +839,7 @@ export default function ByStatsTable({ coachesData = [], statsData = null, onCoa
                   style={{
                     padding: '0.75rem 0.5rem',
                     textAlign: 'center',
-                    color: sortConfig.key === col.key ? '#ff6b35' : '#8892b0',
+                    color: effectiveSortConfig.key === col.key ? '#ff6b35' : categoryColor,
                     fontWeight: 600,
                     cursor: 'pointer',
                     whiteSpace: 'nowrap',
@@ -695,21 +847,25 @@ export default function ByStatsTable({ coachesData = [], statsData = null, onCoa
                   }}
                 >
                   {col.label}
-                  {sortConfig.key === col.key && (
+                  {effectiveSortConfig.key === col.key && (
                     <span style={{ marginLeft: '4px' }}>
-                      {sortConfig.direction === 'desc' ? '↓' : '↑'}
+                      {effectiveSortConfig.direction === 'desc' ? '↓' : '↑'}
                     </span>
                   )}
                 </th>
-              ))}
-              {advancedColumns.map(col => (
+              )})}
+              {advancedColumns.map(col => {
+                // Advanced stats: purple base, but category-colored for passing/rushing
+                const categoryColor = col.category === 'passing' ? '#60a5fa' : 
+                                     col.category === 'rushing' ? '#4ade80' : '#a78bfa';
+                return (
                 <th
                   key={col.key}
                   onClick={() => handleSort(col.key)}
                   style={{
                     padding: '0.75rem 0.5rem',
                     textAlign: 'center',
-                    color: sortConfig.key === col.key ? '#ff6b35' : '#a78bfa',
+                    color: effectiveSortConfig.key === col.key ? '#ff6b35' : categoryColor,
                     fontWeight: 600,
                     cursor: 'pointer',
                     whiteSpace: 'nowrap',
@@ -717,13 +873,13 @@ export default function ByStatsTable({ coachesData = [], statsData = null, onCoa
                   }}
                 >
                   {col.label}
-                  {sortConfig.key === col.key && (
+                  {effectiveSortConfig.key === col.key && (
                     <span style={{ marginLeft: '4px' }}>
-                      {sortConfig.direction === 'desc' ? '↓' : '↑'}
+                      {effectiveSortConfig.direction === 'desc' ? '↓' : '↑'}
                     </span>
                   )}
                 </th>
-              ))}
+              )})}
             </tr>
           </thead>
           <tbody>
